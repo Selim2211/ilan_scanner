@@ -1,0 +1,44 @@
+# Imaja GIRMEYECEKLER.
+# En kritigi .env: anahtarlar imaj katmanina gomulurse imaji alan herkes okur.
+# Anahtarlar calisma aninda ortam degiskeni olarak gecilir (bkz. DOCKER.md).
+.env
+.env.example
+
+# .env.paket BILEREK hariç tutulmaz: tek .tar olarak teslim edilen imajda
+# anahtarlarin gomulu olmasi icin tools/paket_docker.ps1 bu adla bir kopya
+# uretir, Dockerfile onu /app/.env yapar, script derleme biter bitmez siler.
+# Ayri ad, ".env yanlislikla imaja girmesin" korumasini bozmadan bilincli
+# bir "anahtarli imaj" uretmeyi mumkun kiliyor.
+
+# DIKKAT: bu dosya src/ altinda oldugu icin COPY src/ ile imaja SIZAR.
+# Icinde gercek API anahtarlari var (tools/embed_keys.py uretiyor, kurulu exe
+# icin). config.py onu try/except ImportError ile okuyor - imajda bulunmayinca
+# anahtarlar ortam degiskeninden gelir, uygulama sorunsuz calisir.
+src/scanner/_embedded_env.py
+
+# Calisma verisi - konteynerde /veri biriminden gelir, imaja kopyalanmaz
+data/
+output/
+config/*.local.yaml
+
+# Derleme ciktilari ve gecici dosyalar
+build/
+dist/
+packaging/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Windows'a ozgu baslaticilar - konteynerde anlamsiz
+*.ps1
+*.bat
+
+# Gelistirme dosyalari
+tests/
+.git/
+.gitignore
+.claude/
+*.md
+!requirements.txt

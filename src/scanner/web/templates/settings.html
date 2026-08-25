@@ -1,0 +1,603 @@
+{% extends "base.html" %}
+{% block title %}Ayarlar · İlan Tarayıcı{% endblock %}
+
+{% block content %}
+{% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
+{% if error %}<div class="flash err" role="alert">{{ error }}</div>{% endif %}
+
+<div class="settings-intro card">
+  <h1>Ayarlar</h1>
+  <p>
+    Buradaki değişiklikler <code>{{ overlay_file }}</code> ve <code>{{ keywords_file }}</code>
+    dosyalarına yazılır; <code>config/config.yaml</code> ve <code>config/keywords.yaml</code>
+    olduğu gibi kalır (açıklamaları korunsun diye). Anahtarlar <code>{{ env_file }}</code>
+    dosyasında tutulur. Üç dosya da proje klasörüyle birlikte taşınır.
+  </p>
+  {# her bolum kendi rengini tasir: uzun sayfada goz nerede oldugunu bulsun #}
+  <div class="settings-nav">
+    <a class="chip tone-hesap" href="#hesap">Hesabım</a>
+    {% if can('manage_profiles') %}<a class="chip tone-profiller" href="#profiller">Arama profilleri</a>{% endif %}
+    {% if can('edit_search') %}<a class="chip tone-arama" href="#ne-ariyoruz">Ne arıyoruz</a>{% endif %}
+    {% if can('edit_sources') %}<a class="chip tone-kaynaklar" href="#kaynaklar">Kaynaklar</a>{% endif %}
+    {% if can('edit_keys') %}<a class="chip tone-anahtar" href="#anahtarlar">API anahtarları</a>{% endif %}
+    {% if can('edit_scan') %}<a class="chip tone-tarama" href="#tarama">Tarama</a>{% endif %}
+    {% if can('maintenance') %}<a class="chip tone-bakim" href="#bakim">Bakım</a>{% endif %}
+  </div>
+</div>
+
+{# ---------- hesabim ---------- #}
+<section id="hesap" class="card settings-card tone-hesap">
+  <header class="settings-head">
+    <h2>Hesabım</h2>
+    <p class="muted">
+      <b>{{ user.display_name }}</b> · <code>{{ user.username }}</code>
+      {% if user.is_admin %} · yönetici{% endif %}
+      {% if user.last_login_at %} · son giriş {{ user.last_login_at | since }}{% endif %}
+    </p>
+  </header>
+
+  <form method="post" action="/hesap/sifre" class="filters">
+    <div class="field">
+      <label for="h-cur">Mevcut şifreniz</label>
+      <input id="h-cur" type="password" name="current_password" autocomplete="current-password" required>
+    </div>
+    <div class="field">
+      <label for="h-new">Yeni şifre <span class="muted">(en az 6 karakter)</span></label>
+      <input id="h-new" type="password" name="new_password" autocomplete="new-password" required>
+    </div>
+    <div class="field">
+      <label for="h-rep">Yeni şifre (tekrar)</label>
+      <input id="h-rep" type="password" name="repeat_password" autocomplete="new-password" required>
+    </div>
+    <div class="field actions">
+      <button class="btn-primary" type="submit">Şifremi değiştir</button>
+      <span class="muted">Değişince yeniden giriş yapmanız gerekir.</span>
+    </div>
+  </form>
+</section>
+
+{# ---------- arama profilleri ---------- #}
+{% if can('manage_profiles') %}
+<section id="profiller" class="card settings-card tone-profiller">
+  <header class="settings-head">
+    <h2>Arama profilleri</h2>
+    <p class="muted">
+      Bir arama için gereken sorgular, kelimeler ve puan ağırlıkları burada isimli paket olarak
+      saklanır. Profil değiştirdiğinizde <b>ayarlar o profile göre uygulanır</b> ve ilanlar
+      yeniden puanlanır — her seferinde formu baştan doldurmanız gerekmez.
+    </p>
+  </header>
+
+  {% if profiles %}
+  <div class="profile-grid">
+    {% for p in profiles %}
+    {% set body = profile_payload(p) %}
+    <article class="profile-card {% if p['id'] == active_profile_id %}on{% endif %}">
+      {% if p['id'] == active_profile_id %}<span class="on-badge">etkin</span>{% endif %}
+      <h4>{{ p["name"] }}</h4>
+      {% if p["description"] %}<p class="desc">{{ p["description"] }}</p>{% endif %}
+      <span class="stat">
+        {{ body.queries | length }} sorgu · {{ body.must_any | length }} zorunlu kelime ·
+        min skor {{ body.min_score }}<br>
+        {% if body.get('scan_in_background', True) %}arka planda taranıyor
+        {% else %}yalnızca etkinken taranıyor{% endif %}
+      </span>
+      <div class="row-actions">
+        {% if p['id'] != active_profile_id %}
+        <form method="post" action="/profil-sec">
+          <input type="hidden" name="profile_id" value="{{ p['id'] }}">
+          <input type="hidden" name="back" value="/ayarlar#profiller">
+          <button class="btn btn-sm btn-primary" type="submit">Bu profile geç</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/ayarlar/profil-sil"
+              data-confirm="'{{ p['name'] }}' profili silinecek. Kayıtlı ilanlar silinmez, yalnızca profil kaydı gider."
+              data-confirm-label="Evet, sil">
+          <input type="hidden" name="profile_id" value="{{ p['id'] }}">
+          <button class="btn btn-sm danger" type="submit">Sil</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">Henüz profil yok. Aşağıdan ekleyebilirsiniz.</p>
+  {% endif %}
+
+  {# en hizli yol: su anki ayarlari isimlendirip sakla #}
+  <form method="post" action="/ayarlar/profil-mevcuttan" class="filters" style="margin-top:18px">
+    <div class="field wide">
+      <label for="pm-name">
+        Mevcut ayarlardan profil oluştur
+        <span class="muted">(şu an kayıtlı sorgular ve kelimeler bir isimle saklanır)</span>
+      </label>
+      <input id="pm-name" name="name" placeholder="Örn: SAP Uzaktan" required>
+    </div>
+    <div class="field actions">
+      <button class="btn-primary" type="submit">Mevcut ayarları profil yap</button>
+    </div>
+  </form>
+
+  <details style="margin-top:18px">
+    <summary class="btn" style="display:inline-flex">Sıfırdan yeni profil tanımla</summary>
+    <form method="post" action="/ayarlar/profil-ekle" class="filters" style="margin-top:14px">
+      <div class="field">
+        <label for="p-name">Profil adı</label>
+        <input id="p-name" name="name" placeholder="Örn: Salesforce Freelance" required>
+      </div>
+      <div class="field">
+        <label for="p-desc">Açıklama <span class="muted">(isteğe bağlı)</span></label>
+        <input id="p-desc" name="description" placeholder="Ne aradığınızı hatırlatır">
+      </div>
+      <div class="field wide">
+        <label for="p-queries">Arama sorguları <span class="muted">(her satıra bir tane)</span></label>
+        <textarea id="p-queries" name="queries" rows="4" required></textarea>
+      </div>
+      <div class="field wide">
+        <label for="p-must">Zorunlu kelimeler <span class="muted">(biri geçmeyen ilan listeye girmez)</span></label>
+        <textarea id="p-must" name="must_any" rows="3" required></textarea>
+      </div>
+      <div class="field wide">
+        <label for="p-hard">Kesin eleyenler</label>
+        <textarea id="p-hard" name="hard_exclude" rows="2"></textarea>
+      </div>
+      <div class="field wide">
+        <label for="p-boost">Puan artıranlar <span class="muted">(biçim: <code>kelime: 6</code>)</span></label>
+        <textarea id="p-boost" name="boost" rows="5"></textarea>
+      </div>
+      <div class="field wide">
+        <label for="p-pen">Puan düşürenler</label>
+        <textarea id="p-pen" name="penalty" rows="3"></textarea>
+      </div>
+      <div class="field wide">
+        <label for="p-sig">Sinyaller <span class="muted">(uzaktan / proje bazlı puanları)</span></label>
+        <textarea id="p-sig" name="signals" rows="4"></textarea>
+      </div>
+      <div class="field">
+        <label for="p-min">Min skor</label>
+        <input id="p-min" type="number" name="min_score" value="10">
+      </div>
+      <div class="field">
+        <label for="p-mult">Başlık çarpanı</label>
+        <input id="p-mult" type="number" step="0.1" name="title_multiplier" value="2.0">
+      </div>
+
+      <p class="filter-legend">Bu profile geçince liste nasıl açılsın</p>
+      <div class="filter-group">
+        <div class="field">
+          <label for="p-vmode">Çalışma şekli</label>
+          <select id="p-vmode" name="view_mode">
+            <option value="">Hepsi</option>
+            <option value="remote">Uzaktan</option>
+            <option value="remote_or_hybrid">Uzaktan + hibrit</option>
+            <option value="hybrid">Hibrit</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="p-vdays">Yayın tarihi</label>
+          <select id="p-vdays" name="view_days">
+            <option value="0">Fark etmez</option>
+            <option value="3">Son 3 gün</option>
+            <option value="7">Son 7 gün</option>
+            <option value="30">Son 30 gün</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="p-vsort">Sıralama</label>
+          <select id="p-vsort" name="view_sort">
+            <option value="score">Skora göre</option>
+            <option value="date">İlan tarihine göre</option>
+            <option value="new">Sisteme düşme sırası</option>
+            <option value="budget">Bütçeye göre</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="p-vcountry">Ülke</label>
+          <input id="p-vcountry" name="view_country" placeholder="Hepsi">
+        </div>
+        <div class="field">
+          <label for="p-vex">Hariç tut</label>
+          <input id="p-vex" name="view_exclude" placeholder="örn: intern">
+        </div>
+      </div>
+      <div class="filter-toggles">
+        <label class="check"><input type="checkbox" name="view_contract" value="1"> Proje bazlı</label>
+        <label class="check"><input type="checkbox" name="view_budget" value="1"> Bütçesi belli</label>
+      </div>
+
+      <p class="filter-legend">Arka plan taraması</p>
+      <div class="filter-toggles">
+        <label class="check">
+          <input type="checkbox" name="scan_in_background" value="1" checked>
+          Tam turlarda bu profil de taransın
+        </label>
+      </div>
+      <p class="muted" style="grid-column:1/-1; margin:2px 0 0">
+        Açıkken bu profilin sorguları, siz başka profildeyken bile 30 dakikada bir çalışır —
+        profile geçtiğinizde liste güncel olur. Kapatırsanız yalnızca bu profil etkinken beslenir
+        (kaynak kotanız darsa işe yarar).
+      </p>
+
+      <div class="field actions">
+        <button class="btn-primary" type="submit">Profili kaydet</button>
+      </div>
+    </form>
+  </details>
+</section>
+{% endif %}
+
+{# ---------- ne ariyoruz ---------- #}
+{% if can('edit_search') %}
+<section id="ne-ariyoruz" class="card settings-card tone-arama">
+  <header class="settings-head">
+    <h2>Ne arıyoruz</h2>
+    <p class="muted">
+      Aranan konuyu buradan değiştirirsiniz — örneğin SAP yerine ERP yazılımı.
+      Kaydedince <b>bütün kaynaklara</b> uygulanır ve kayıtlı ilanlar yeniden puanlanır.
+      Ağa çıkılmaz, saniyeler sürer.
+      {% if active_profile %}<br>Etkin profil <b>{{ active_profile }}</b> — buradaki değişiklik o profile de yazılır.{% endif %}
+    </p>
+  </header>
+
+  <form method="post" action="/ayarlar/ne-ariyoruz" class="filters">
+    <div class="field wide">
+      <label for="k-queries">
+        Arama sorguları
+        <span class="muted">(kaynaklara bu metinler gönderilir — her satıra bir tane)</span>
+      </label>
+      <textarea id="k-queries" name="queries" rows="6">{{ fmt_lines(queries) }}</textarea>
+    </div>
+    <div class="field wide">
+      <label for="k-must">
+        Zorunlu kelimeler
+        <span class="muted">(bunlardan biri geçmeyen ilan hiç listeye girmez — asıl konu filtresi)</span>
+      </label>
+      <textarea id="k-must" name="must_any" rows="4">{{ fmt_lines(keywords.must_any) }}</textarea>
+    </div>
+    <div class="field wide">
+      <label for="k-hard">
+        Kesin eleyenler <span class="muted">(bu kelime geçiyorsa ilan atılır)</span>
+      </label>
+      <textarea id="k-hard" name="hard_exclude" rows="3">{{ fmt_lines(keywords.hard_exclude) }}</textarea>
+    </div>
+    <div class="field wide">
+      <label for="k-boost">
+        Puan artıran kelimeler <span class="muted">(biçim: <code>kelime: 6</code>)</span>
+      </label>
+      <textarea id="k-boost" name="boost" rows="10">{{ fmt_weights(keywords.boost) }}</textarea>
+    </div>
+    <div class="field wide">
+      <label for="k-pen">Puan düşüren kelimeler</label>
+      <textarea id="k-pen" name="penalty" rows="6">{{ fmt_weights(keywords.penalty) }}</textarea>
+    </div>
+    <div class="field wide">
+      <label for="k-signals">
+        Sinyaller
+        <span class="muted">(uzaktan/proje bazlı gibi çalışma şekli puanları)</span>
+      </label>
+      <textarea id="k-signals" name="signals" rows="8">{{ fmt_weights(signals) }}</textarea>
+    </div>
+    <div class="field">
+      <label for="k-min">Min skor <span class="muted">(listede varsayılan alt sınır)</span></label>
+      <input id="k-min" type="number" name="min_score" value="{{ keywords.min_score or 0 }}">
+    </div>
+    <div class="field">
+      <label for="k-mult">Başlık çarpanı</label>
+      <input id="k-mult" type="number" step="0.1" name="title_multiplier"
+             value="{{ keywords.title_multiplier or 2.0 }}">
+    </div>
+    <div class="field actions">
+      <button class="btn-primary" type="submit">Kaydet ve yeniden puanla</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{# ---------- kaynaklar ---------- #}
+{% if can('edit_sources') %}
+<section id="kaynaklar" class="card settings-card tone-kaynaklar">
+  <header class="settings-head">
+    <h2>Kaynaklar</h2>
+    <p class="muted">Hangi panolardan veri çekiliyor, hangi kelimelerle aranıyor.
+      “Veriyi kontrol et” kaydedilmiş ayarlarla canlı dener ve veritabanına <b>yazmaz</b>.</p>
+  </header>
+
+  <form method="post" action="/ayarlar/kaynaklar">
+    <div class="src-grid">
+      {% for s in catalog %}
+      <article class="src {% if not s.enabled %}off{% endif %}" data-source="{{ s.name }}">
+        <div class="src-top">
+          <label class="check">
+            <input type="checkbox" name="enabled__{{ s.name }}" value="1" {% if s.enabled %}checked{% endif %}>
+            <b>{{ s.title }}</b>
+          </label>
+          <span class="src-state {{ 'ready' if s.ready else 'missing' }}">
+            {% if s.ready %}hazır{% else %}anahtar eksik{% endif %}
+          </span>
+        </div>
+
+        {% if s.custom %}
+        <p class="src-note">
+          <span class="src-state custom">panelden eklendi · {{ s.kind|upper }}</span>
+          <code class="src-url">{{ s.url }}</code>
+        </p>
+        {% endif %}
+        {% if s.notes %}<p class="src-note">{{ s.notes }}</p>{% endif %}
+
+        {% if s.env_vars %}
+        <ul class="src-keys">
+          {% for v in s.env_vars %}
+          <li>
+            <code>{{ v.name }}</code>
+            <span class="{{ 'set' if v.is_set else 'unset' }}">{{ v.masked }}</span>
+            {% if not v.required %}<em>isteğe bağlı</em>{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="src-keys none">Anahtar gerekmiyor.</p>
+        {% endif %}
+
+        {% if s.pages is not none %}
+        <div class="field small">
+          <label for="p-{{ s.name }}">Sayfa sayısı</label>
+          <input id="p-{{ s.name }}" type="number" min="1" max="20"
+                 name="pages__{{ s.name }}" value="{{ s.pages }}">
+        </div>
+        {% endif %}
+
+        {% for key in s.list_names %}
+        <div class="field">
+          <label for="l-{{ s.name }}-{{ key }}">
+            {% if key == "queries" %}Arama sorguları
+            {% elif key == "keywords" %}Anahtar kelime sayfaları
+            {% elif key == "skill_ids" %}Yetenek kodları
+            {% elif key == "countries" %}Ülkeler
+            {% elif key == "locales" %}Diller
+            {% elif key == "cpv" %}CPV kodları
+            {% else %}{{ key }}{% endif %}
+            <span class="muted">(her satıra bir tane)</span>
+          </label>
+          <textarea id="l-{{ s.name }}-{{ key }}" name="{{ key }}__{{ s.name }}"
+                    rows="4">{{ fmt_lines(s.lists[key]) }}</textarea>
+        </div>
+        {% endfor %}
+
+        <div class="src-actions">
+          <button class="btn btn-sm probe-btn" type="button" data-source="{{ s.name }}">
+            Veriyi kontrol et
+          </button>
+          {% if s.custom %}
+          {# form icinde form olamaz: silme dugmesi disaridaki forma baglaniyor #}
+          <button class="btn btn-sm danger" type="submit" form="delete-{{ s.name }}"
+                  onclick="return confirm('{{ s.title }} kaynağı silinsin mi?')">Sil</button>
+          {% endif %}
+          {% if s.signup_url %}
+          <a class="btn btn-sm" href="{{ s.signup_url }}" target="_blank" rel="noopener">
+            {% if s.env_vars %}Anahtar al{% else %}Siteye git{% endif %}
+          </a>
+          {% endif %}
+        </div>
+        <div class="probe-result" id="probe-{{ s.name }}" hidden></div>
+      </article>
+      {% endfor %}
+    </div>
+
+    <div class="settings-save">
+      <button class="btn-primary" type="submit">Kaynakları kaydet</button>
+      <span class="muted">Kontrol kayıtlı ayarlarla çalışır — önce kaydedin.</span>
+    </div>
+  </form>
+
+  {# silme formlari kaynak formunun DISINDA: ic ice form gecerli HTML degil #}
+  {% for s in catalog if s.custom %}
+  <form id="delete-{{ s.name }}" method="post" action="/ayarlar/kaynak-sil" hidden>
+    <input type="hidden" name="name" value="{{ s.name }}">
+  </form>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ---------- anahtarlar ---------- #}
+{% if can('edit_keys') %}
+<section id="anahtarlar" class="card settings-card tone-anahtar">
+  <header class="settings-head">
+    <h2>API anahtarları</h2>
+    <p class="muted">Kayıtlı anahtar hiçbir zaman ekrana yazılmaz, sadece maskesi görünür.
+      Alanı boş bırakırsanız mevcut anahtar değişmez.</p>
+  </header>
+
+  <form method="post" action="/ayarlar/anahtarlar">
+    <table class="keys">
+      <thead>
+        <tr><th>Değişken</th><th>Kaynak</th><th>Durum</th><th>Yeni değer</th><th>Sil</th></tr>
+      </thead>
+      <tbody>
+        {% for v in env_rows %}
+        <tr>
+          <td><code>{{ v.name }}</code><br><span class="muted">{{ v.label }}</span></td>
+          <td class="muted">{{ v.sources | join(", ") }}</td>
+          <td>
+            <span class="{{ 'set' if v.is_set else 'unset' }}">{{ v.masked }}</span>
+            {% if not v.required %}<em class="muted">isteğe bağlı</em>{% endif %}
+          </td>
+          <td>
+            <input type="password" name="env__{{ v.name }}" autocomplete="off"
+                   placeholder="değiştirmek için yazın">
+          </td>
+          <td><label class="check"><input type="checkbox" name="clear__{{ v.name }}" value="1"></label></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="settings-save">
+      <button class="btn-primary" type="submit">Anahtarları kaydet</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{# ---------- tarama ---------- #}
+{% if can('edit_scan') %}
+<section id="tarama" class="card settings-card tone-tarama">
+  <header class="settings-head">
+    <h2>Tarama</h2>
+    <p class="muted">Değişiklik anında geçerli olur, paneli yeniden başlatmak gerekmez.</p>
+  </header>
+
+  <form method="post" action="/ayarlar/tarama" class="filters">
+    <div class="filter-toggles">
+      <label class="check">
+        <input type="checkbox" name="auto_enabled" value="1" {% if auto.enabled %}checked{% endif %}>
+        Otomatik tarama açık
+      </label>
+    </div>
+    <div class="field">
+      <label for="s-full">Tam tur (dk)</label>
+      <input id="s-full" type="number" min="5" name="interval_minutes"
+             value="{{ auto.interval_minutes or 30 }}">
+    </div>
+    <div class="field">
+      <label for="s-quick">Hızlı tur (dk)</label>
+      <input id="s-quick" type="number" min="2" name="quick_interval_minutes"
+             value="{{ auto.quick_interval_minutes or 8 }}">
+    </div>
+    <div class="field">
+      <label for="s-vlimit">Tur başına link kontrolü</label>
+      <input id="s-vlimit" type="number" min="0" name="verify_limit"
+             value="{{ auto.verify_limit or 40 }}">
+    </div>
+    <div class="field">
+      <label for="s-vevery">Kaç turda bir kontrol</label>
+      <input id="s-vevery" type="number" min="0" name="verify_every_n_scans"
+             value="{{ auto.verify_every_n_scans or 1 }}">
+    </div>
+    <div class="field">
+      <label for="s-page">Sayfa başına ilan</label>
+      <input id="s-page" type="number" min="5" max="200" name="page_size"
+             value="{{ panel.page_size or 20 }}">
+    </div>
+    <div class="field actions">
+      <button class="btn-primary" type="submit">Tarama ayarlarını kaydet</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{# ---------- bakim ---------- #}
+{% if can('maintenance') %}
+<section id="bakim" class="card settings-card tone-bakim">
+  <header class="settings-head">
+    <h2>Bakım</h2>
+    <p class="muted">
+      Geçici dosyaları ve eskimiş kayıtları temizler. Aktif ilanlarınız, ayarlarınız ve
+      API anahtarlarınız hiçbir görevde silinmez. Riskli olanlar varsayılan olarak işaretsizdir.
+    </p>
+  </header>
+
+  <form method="post" action="/ayarlar/bakim"
+        data-confirm="Seçili temizlik görevleri çalıştırılacak. Silinen dosyalar geri alınamaz."
+        data-confirm-label="Evet, temizle">
+    <div class="maint-grid">
+      {% for t in maintenance_tasks %}
+      <label class="maint-task">
+        <input type="checkbox" name="gorev" value="{{ t.key }}" {% if t.safe and t.count %}checked{% endif %}>
+        <span style="flex:1">
+          <b>{{ t.title }}</b>
+          <p>{{ t.detail }}</p>
+        </span>
+        <span class="size {% if not t.count and not t.bytes %}zero{% endif %}">{{ t.summary }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="settings-save">
+      <button class="btn-primary danger" type="submit">Seçilenleri temizle</button>
+      <span class="muted">Boyutlar bu sayfa açıldığı andaki durumu gösterir.</span>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{# ---------- yeni kaynak (kodsuz) ---------- #}
+{% if can('edit_sources') %}
+<section id="yeni-kaynak" class="card settings-card tone-kaynaklar">
+  <header class="settings-head">
+    <h2>Yeni kaynak ekle</h2>
+    <p class="muted">
+      Bir iş panosunun <b>RSS akışını</b> ya da <b>JSON API'sini</b> tanıtarak kod yazmadan
+      kaynak eklersiniz. Kaydetmeden önce <b>“Bu tanımı dene”</b> ile sınayın — hangi alanların
+      olduğunu ve nerede hata yaptığınızı söyler.
+    </p>
+  </header>
+
+  <form method="post" action="/ayarlar/kaynak-ekle" class="filters" id="custom-form">
+    <div class="field">
+      <label for="c-title">Kaynağın adı</label>
+      <input id="c-title" name="title" placeholder="Örn: Remote OK" required>
+    </div>
+    <div class="field">
+      <label for="c-kind">Tür</label>
+      <select id="c-kind" name="kind">
+        <option value="rss">RSS / Atom akışı</option>
+        <option value="json">JSON API</option>
+      </select>
+    </div>
+    <div class="field wide">
+      <label for="c-url">
+        Adres
+        <span class="muted">Aramayı adrese <code>{sorgu}</code>, sayfayı <code>{sayfa}</code> ile koyun</span>
+      </label>
+      <input id="c-url" name="url" placeholder="https://site.com/jobs.rss?search={sorgu}" required>
+    </div>
+    <div class="field">
+      <label for="c-pages">Kaç sayfa</label>
+      <input id="c-pages" type="number" min="1" max="10" name="pages" value="1">
+    </div>
+    <div class="field">
+      <label for="c-site">Site adresi <span class="muted">(isteğe bağlı)</span></label>
+      <input id="c-site" name="site_url" placeholder="https://site.com">
+    </div>
+    <div class="field wide">
+      <label for="c-queries">Arama sorguları <span class="muted">(boşsa genel sorgular kullanılır)</span></label>
+      <textarea id="c-queries" name="queries" rows="3"></textarea>
+    </div>
+
+    <div class="field wide json-only" hidden>
+      <label for="c-items">
+        İlan listesinin yolu
+        <span class="muted">JSON'da ilanların durduğu alan, örn. <code>data</code> ya da <code>results.jobs</code></span>
+      </label>
+      <input id="c-items" name="items_path" placeholder="data">
+    </div>
+
+    <fieldset class="field wide fields-box">
+      <legend>
+        Alan eşlemesi
+        <span class="muted json-only" hidden>JSON'da başlık ve link zorunlu</span>
+        <span class="muted rss-only">RSS'te alanlar standarttır; boş bırakırsanız otomatik bulunur</span>
+      </legend>
+      <div class="map-grid">
+        {% for key, label, required in field_spec %}
+        <div class="field small">
+          <label for="c-f-{{ key }}">{{ label }}{% if required %} *{% endif %}</label>
+          <input id="c-f-{{ key }}" name="field__{{ key }}"
+                 placeholder="{% if key == 'title' %}title{% elif key == 'url' %}link{% else %}—{% endif %}">
+        </div>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <div class="filter-toggles">
+      <label class="check"><input type="checkbox" name="enabled" value="1" checked> Ekledikten sonra açık olsun</label>
+    </div>
+    <div class="field actions wide">
+      <button class="btn" type="button" id="custom-test">Bu tanımı dene</button>
+      <button class="btn-primary" type="submit">Kaynağı kaydet</button>
+    </div>
+    <div class="probe-result wide" id="probe-custom" hidden></div>
+  </form>
+</section>
+{% endif %}
+
+<script src="/static/settings.js?v={{ asset_v }}" defer></script>
+{% endblock %}

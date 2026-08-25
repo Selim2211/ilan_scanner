@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Bildirimler · İlan Tarayıcı{% endblock %}
+
+{% block style %}
+<style>
+  .headline { display:flex; align-items:center; justify-content:space-between; gap:12px;
+              flex-wrap:wrap; margin:2px 2px 16px; }
+  .headline h1 { margin:0; font-size:21px; display:flex; align-items:center; gap:10px; }
+  .headline .tools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .note .when { font-family:var(--font-mono); font-size:11.5px; color:var(--ink-3); white-space:nowrap; }
+  .note .top { display:flex; gap:9px; align-items:center; flex-wrap:wrap; }
+  .note-actions { display:flex; gap:6px; align-items:center; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="headline">
+  <h1>Bildirimler
+    {% if unread %}<span class="badge-count">{{ unread }}</span>{% endif %}
+  </h1>
+  <div class="tools">
+    <a class="btn" href="/bildirimler{% if not only_unread %}?unread=1{% endif %}">
+      {% if only_unread %}Hepsini göster{% else %}Sadece okunmamış{% endif %}
+    </a>
+    <form method="post" action="/bildirimler/okundu">
+      <input type="hidden" name="back" value="/bildirimler{% if only_unread %}?unread=1{% endif %}">
+      <button class="btn-primary" type="submit">Tümünü okundu işaretle</button>
+    </form>
+    {% if can('delete_notifications') and items %}
+    <form method="post" action="/bildirimler/sil"
+          data-confirm="Bütün bildirimler kalıcı olarak silinecek. Bu işlem geri alınamaz."
+          data-confirm-label="Evet, hepsini sil">
+      <input type="hidden" name="hepsi" value="1">
+      <input type="hidden" name="back" value="/bildirimler{% if only_unread %}?unread=1{% endif %}">
+      <button class="btn danger" type="submit">Hepsini sil</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if items %}
+<div class="feed">
+  {% for n in items %}
+    <article class="card note {% if not n['read_at'] %}unread{% endif %} {% if n['kind'] == 'closed' %}closed{% endif %}"
+             style="animation-delay:{{ loop.index0 * 18 }}ms">
+      <div class="kind">
+        {% if n["kind"] == "new" %}
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        {% else %}
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        {% endif %}
+      </div>
+      <div>
+        <div class="top">
+          <h3><a href="{{ n['url'] }}" target="_blank" rel="noopener">{{ n["title"] }}</a></h3>
+          {% if n["kind"] == "new" %}<span class="pill contract">{{ n["score"] }} PUAN</span>{% endif %}
+          {% if n["work_mode"] == "remote" %}<span class="pill remote">UZAKTAN</span>
+          {% elif n["work_mode"] == "hybrid" %}<span class="pill hybrid">HİBRİT</span>{% endif %}
+        </div>
+        <p>
+          <span class="when">{{ n["created_at"] | since }}</span> · {{ n["source"] }}
+          {% if n["detail"] %} · {{ n["detail"] }}{% endif %}
+        </p>
+      </div>
+      <div class="note-actions">
+        {% if not n["read_at"] %}
+        <form method="post" action="/bildirimler/okundu">
+          <input type="hidden" name="notification_id" value="{{ n['id'] }}">
+          <input type="hidden" name="back" value="/bildirimler{% if only_unread %}?unread=1{% endif %}">
+          <button class="iconbtn" type="submit" aria-label="Okundu işaretle" title="Okundu işaretle">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12 5 5L20 6"/></svg>
+          </button>
+        </form>
+        {% endif %}
+        {% if can('delete_notifications') %}
+        <form method="post" action="/bildirimler/sil"
+              data-confirm="Bu bildirim kalıcı olarak silinecek."
+              data-confirm-label="Evet, sil">
+          <input type="hidden" name="notification_id" value="{{ n['id'] }}">
+          <input type="hidden" name="back" value="/bildirimler{% if only_unread %}?unread=1{% endif %}">
+          <button class="iconbtn danger" type="submit" aria-label="Bildirimi sil" title="Bildirimi sil">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>
+            </svg>
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </article>
+  {% endfor %}
+</div>
+{% else %}
+  <div class="card empty">
+    <svg class="art" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+    </svg>
+    <h2>Bildirim yok</h2>
+    <p>Tarama çalıştıkça yeni ve kapanan ilanlar buraya düşer.</p>
+  </div>
+{% endif %}
+{% endblock %}

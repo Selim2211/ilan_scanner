@@ -1,0 +1,236 @@
+# ABAP/SAP Proje Avcisi - genel ayarlar
+database: data/projects.db
+output_dir: output
+
+http:
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+  timeout_seconds: 30
+  rate_limit_seconds: 2.0
+  max_retries: 3
+
+# Varsayilan arama metinleri (kaynak kendi listesini tanimlayabilir)
+queries:
+  - "SAP ABAP"
+  - "ABAP remote"
+  - "SAP ABAP freelance"
+  - "SAP ABAP contract"
+
+sources:
+  jooble:
+    enabled: true
+    region: ""            # bos = jooble.org (global indeks). Anahtar .env icinde.
+    pages: 5              # sayfa basina 20 ilan
+    # Sorgu sayisi = hacim. Her sorgu ayri bir indeks dilimini aciyor;
+    # cakisanlari dedupe temizliyor, maliyeti sadece sure.
+    queries:
+      # cekirdek
+      - "SAP ABAP remote"
+      - "SAP ABAP contract"
+      - "SAP ABAP freelance"
+      - "ABAP developer remote"
+      - "SAP consultant remote contract"
+      - "SAP developer contract"
+      # moduller
+      - "SAP MM remote contract"
+      - "SAP SD remote contract"
+      - "SAP FICO remote contract"
+      - "SAP PP remote contract"
+      - "SAP EWM remote contract"
+      - "SAP BW remote contract"
+      - "SAP Basis remote contract"
+      - "SAP HANA remote contract"
+      - "SAP Fiori remote contract"
+      - "SAP SuccessFactors contract"
+      - "SAP CRM consultant contract"
+      - "SAP S/4HANA migration contract"
+      # teknik
+      - "ABAP OO CDS RAP"
+      - "SAP integration consultant remote"
+
+  # Her Jooble alan adi AYRI anahtar ister; jooble.org anahtari uk/de'de 403 verir.
+  # Bu yuzden bolgeler ayri kaynak: kendi anahtari, kendi sorgulari, ilanlarda
+  # kendi etiketi (source = jooble-uk / jooble-de). Anahtar degisimi: Ayarlar >
+  # Anahtarlar. Ayni ilan iki bolgede cikarsa dedupe tek kayda indirir.
+  jooble-uk:
+    # uk.jooble.org - Ingiltere. Olcum: "SAP ABAP contract" -> 100/100 isabet,
+    # Next Ventures / RED / Vivid gibi SAP contract ajanslari.
+    enabled: true
+    pages: 5
+    queries:
+      - "SAP ABAP contract"
+      - "SAP ABAP remote"
+      - "ABAP developer contract"
+      - "SAP consultant contract"
+      - "SAP S/4HANA contract"
+      - "SAP Fiori contract"
+      - "SAP Basis contract"
+      - "SAP FICO contract"
+      - "SAP MM SD contract"
+      - "SAP BW contract"
+      - "SAP integration contract"
+      - "SAP interim"
+
+  jooble-de:
+    # de.jooble.org - Almanya. "SAP ABAP" icin 65.043 sonuc (ABD'den fazla).
+    # Almanca sorgular YALNIZCA burada anlamli; kuresel indekste ABD ilani donuyordu.
+    enabled: true
+    pages: 5
+    queries:
+      - "SAP ABAP freiberuflich"
+      - "SAP ABAP Entwickler"
+      - "SAP Berater freiberuflich"
+      - "SAP Entwickler remote"
+      - "ABAP Entwickler remote"
+      - "SAP Projekt freelancer"
+      - "SAP S/4HANA Berater"
+      - "SAP Fiori Entwickler"
+      - "SAP Basis Berater"
+      - "SAP FICO Berater"
+      - "SAP MM SD Berater"
+      - "SAP ABAP contract"
+
+  freelancermap:
+    enabled: true
+    # Avrupa contract pazarinin merkezi. Site aramasi JS ile calistigi icin
+    # anahtar kelime sayfalari taranir (her sayfa ~5-22 ilan).
+    keywords: ["sap-abap", "sap", "sap-hana", "sap-fiori", "sap-applications",
+               "abap", "sap-s-4hana", "sap-mm", "sap-sd", "sap-fico", "sap-pp",
+               "sap-ewm", "sap-bw", "sap-basis", "sap-successfactors", "remote",
+               "sap-cx", "sap-ibp", "sap-ariba", "sap-btp", "sap-pi", "sap-po",
+               "sap-crm", "sap-qm", "sap-pm", "sap-wm", "sap-hcm", "sap-fi",
+               "sap-co", "sap-bpc", "sap-analytics-cloud", "abap-oo",
+               "s-4hana", "sapui5", "sap-cpi", "sap-solution-manager"]
+    queries: [""]
+
+  freelancercom:
+    enabled: true
+    # ABAP: 1733/1734/1784 · SAP ailesi: 267/1438/1489/1532/1533
+    # + cevre yetenekler: ERP(1074), Business Intelligence(281), Data Warehousing(1141),
+    #   Oracle(96), SQL(30), Systems Analysis(1219)
+    skill_ids: [1733, 1734, 1784, 267, 1438, 1489, 1532, 1533, 1074, 281, 1141]
+    limit: 50
+    pages: 3
+    queries: [""]
+
+  upwork:
+    # Public erisim kapali; resmi GraphQL API + OAuth2 ile calisir.
+    # Kurulum: .env -> UPWORK_CLIENT_ID / UPWORK_CLIENT_SECRET, sonra:
+    #   py -m scanner upwork-auth
+    # Token suresi dolunca kendiliginden yenilenir (sources/upwork_auth.py).
+    enabled: true
+    page_size: 50
+    pages: 2
+    queries: ["SAP ABAP", "ABAP developer", "SAP consultant", "SAP S/4HANA", "SAP integration"]
+
+  reed:
+    # UK contract pazari. Ucretsiz anahtar: https://www.reed.co.uk/developers
+    # .env -> REED_API_KEY
+    enabled: true
+    results_per_page: 100
+    pages: 2
+    contract_only: false
+    queries: ["SAP ABAP", "SAP consultant", "SAP S/4HANA", "SAP developer contract"]
+
+  careerjet:
+    # 90 ulke agregatoru. Ucretsiz ortak kimligi:
+    # https://www.careerjet.com/partners/api/ -> .env -> CAREERJET_AFFID
+    enabled: true
+    locales: ["en_GB", "de_DE", "de_AT", "de_CH", "nl_NL", "en_US", "tr_TR"]
+    pages: 2
+    page_size: 99
+    contract_only: false
+    queries: ["SAP ABAP", "SAP consultant", "SAP freelance"]
+
+  ted:
+    # AB kamu ihaleleri (Tenders Electronic Daily). Anahtar gerekmiyor.
+    # Is ilani degil, ihale: engagement = "ihale", panelde ayri rozet.
+    # Ifadeler OR ile birlestirilemiyor, her biri ayri sorgu.
+    enabled: true
+    cpv: ["72000000", "48000000"]   # BT hizmetleri + yazilim
+    max_days_old: 120
+    limit: 50
+    pages: 2
+    queries: ["SAP S/4HANA", "SAP ERP", "ABAP", "SAP HANA", "SAP Basis", "SAP-System"]
+
+  arbeitnow:
+    enabled: true
+    pages: 3
+    # Dikkat: API'de arama parametresi yok, her sorgu ayni sayfalari yeniden cekiyor.
+    # Fazla sorgu = 429. Iki sorgu yeterli, suzme yerelde yapiliyor.
+    queries: ["sap", "abap"]
+
+  kariyernet:
+    enabled: true
+    # Turkiye pazari (hibrit/yerinde agirlikli). Bot korumasi var: pages dusuk.
+    pages: 2
+    queries: ["SAP ABAP", "SAP danisman"]
+
+scan:
+  max_age_days: 60        # bundan eski ilanlar rapora girmez (DB'de kalir)
+
+freshness:
+  # Kaynaklar sayfalanmis bir PENCERE donduruyor: yeni ilan gelince eski ilan
+  # pencereden duser ama yayinda kalir. Bu yuzden "listede yok" = kapandi DEGIL.
+  # Akis: N tarama gorulmeyen ilan supheli olur -> linki acilir -> 404/"kapandi"
+  # metni varsa kapatilir, sayfa aciliyorsa sayac sifirlanir.
+  suspect_after_missing_scans: 2
+  # Link kontrolu yapilamayan kaynaklarda (bot duvari) son care esigi.
+  close_unverifiable_after_missing_scans: 6
+  # Linki dogrulanabilen kaynaklarda SON CARE kapatma esigi (0 = kapali).
+  # Dogrulama tur basina sinirli; buyuk listelerde sira bazi ilanlara hic gelmiyor
+  # ve 6-10 turdur kayip ilan "aktif" gorunmeye devam ediyordu.
+  close_after_missing_scans: 10
+  # Tarama sonunda en fazla kac supheli ilanin linki acilsin
+  suspect_check_limit: 80
+  # `scanner verify` komutunun tek seferde kac ilanin linkini kontrol edecegi
+  verify_limit: 40
+  # Link kontrolunu bot duvarina takilan kaynaklarda yapma (hep 403 doner, bilgi vermez).
+  # Bu kaynaklarin ilanlari API ile dogrulanir (asagi bkz.), o da yoksa uzun sureli
+  # yokluga bakilir.
+  verify_skip_sources: ["jooble", "jooble-uk", "jooble-de"]
+  # Linki acilamayan ama API'si olan kaynaklarda (Jooble) ilan, KENDI basligiyla
+  # API'de aranir ve baslik+firma parmak iziyle eslestirilir. Jooble ayni ilana
+  # sorgudan sorguya farkli `id` verdigi icin id ile eslestirme yapilmaz.
+  # Baslik aramasi ilani ~%13 oranda kaciriyor; bu yuzden tek bir bulunamama
+  # kapatmaz, ust uste iki tur gerekir.
+  api_verify_limit: 60           # tur basina kac ilan API ile dogrulanir
+  api_verify_miss_threshold: 2   # ust uste kac kez bulunamazsa kapat
+  # Panelden elle baslatilan TEMIZLIK TURU (Listeyi kontrol et). Otomatik
+  # dogrulamadan farki: kullanicinin o an filtreledigi ilanlara bakar, kaynak
+  # atlamaz (Jooble dahil denenir; 403 gelirse "dogrulanamadi" denir, kapatilmaz).
+  sweep_max: 500        # tek turda en fazla kac ilanin linki acilir
+  sweep_workers: 8      # es zamanli link kontrolu
+  sweep_timeout: 15     # tek link icin saniye
+
+auto_scan:
+  # Panel acikken (py -m scanner serve) arka planda kendi kendine tarama yapar.
+  # Veri boylece surekli akar; kapanan ilanlar da otomatik isaretlenir.
+  enabled: true
+  interval_minutes: 30      # TAM tur: tum kaynaklar + kapanan tespiti (en az 5)
+  quick_interval_minutes: 8 # HIZLI tur: yeni ilan avi (hafif, kapanan tespiti yok)
+  quick_sources: ["jooble", "jooble-de", "jooble-uk", "freelancercom"]  # hizli turda taranan kaynaklar
+  quick_pages: 1            # hizli turda kaynak basina sayfa
+  quick_max_queries: 3      # hizli turda kaynak basina sorgu
+  run_on_start: true        # panel acilir acilmaz bir tarama yap
+  # 751+ ilanla eski deger (2 turda bir, 40 ilan) cok yavas donuyordu; her tam turda
+  # ve daha genis kontrol yapiyoruz. Jooble (~%70 hacim) yine de dogrulanamiyor -
+  # bkz. freshness.verify_skip_sources ve PROJECT.md "bilinen sinir".
+  verify_every_n_scans: 1   # her TAM turda link kontrolu yap
+  verify_limit: 80          # tur basina kontrol edilecek ilan sayisi
+
+notifications:
+  min_score: 15           # bu puanin altindaki yeni ilan bildirime dusmez
+  keep_days: 30           # eski bildirimler otomatik silinir
+
+panel:
+  page_size: 20           # panelde sayfa basina ilan sayisi
+  # Butceye gore siralama icin kaba USD kurlari. Yazilmazsa normalize.DEFAULT_RATES
+  # kullanilir. Siralama icin yeterli, muhasebe icin degil.
+  # currency_rates: {USD: 1.0, EUR: 1.08, GBP: 1.27, TRY: 0.03}
+
+mail:
+  enabled: false
+  subject: "SAP Proje Radari - {date}"
+  min_score: 20           # sadece guclu remote/contract eslesmeler
+  only_new: true
+  attach_excel: true

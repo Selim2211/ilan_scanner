@@ -1,0 +1,54 @@
+# SAP Proje Radari - tek servis.
+#
+# Calistirma:  docker compose up -d
+# Gunluk:      docker compose logs -f
+# Guncelleme:  docker compose up -d --build
+#
+# Anahtarlar host'taki .env dosyasindan okunur ve ortam degiskeni olarak gecer.
+# Uygulama gercek ortam degiskenlerine oncelik verir (config.py _load_dotenv,
+# force=False), yani birimdeki .env dosyasi bunlari EZEMEZ.
+
+services:
+  radar:
+    build: .
+    image: sap-proje-radari:1.4.0
+    container_name: sap-radar
+
+    # Makine yeniden baslayinca panel de kalksin: Windows'taki
+    # "baslangicta calistir" gorevinin konteyner karsiligi.
+    restart: unless-stopped
+
+    # Yalnizca bu makineden erisim. Aga acmak icin RADAR_BIND=0.0.0.0 yapin -
+    # ama once ilk yonetici parolasini degistirin (bkz. DOCKER.md).
+    # Port dolu ise (ornegin tepsi uygulamasi 8000'de calisiyorsa):
+    #   RADAR_PORT=8010 docker compose up -d
+    ports:
+      - "${RADAR_BIND:-127.0.0.1}:${RADAR_PORT:-8000}:8000"
+
+    # API anahtarlari. Dosya yoksa konteyner baslamaz; anahtarsiz kaynaklar
+    # zaten sessizce atlanir, panel yine calisir.
+    env_file:
+      - .env
+
+    environment:
+      TZ: Europe/Istanbul
+
+    volumes:
+      # Uygulamanin YAZDIGI her sey: veritabani, .env, ayar overlay'leri,
+      # Excel ciktilari, gunlukler. Tek birim yeterli.
+      - radar-veri:/veri
+
+    # SQLite tek yazar ister; tarama da panelin icinde donuyor.
+    # ASLA replika sayisini artirmayin.
+    deploy:
+      replicas: 1
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  radar-veri:
+    name: sap-radar-veri

@@ -1,0 +1,447 @@
+{% extends "base.html" %}
+
+{% macro icon(name) -%}
+  {%- if name == "company" -%}<path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-4h6v4"/>
+  {%- elif name == "pin" -%}<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/>
+  {%- elif name == "clock" -%}<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+  {%- elif name == "money" -%}<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+  {%- elif name == "calendar" -%}<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+  {%- elif name == "star" -%}<path d="m12 3 2.7 5.6 6.3.9-4.5 4.3 1 6.2-5.5-3-5.5 3 1-6.2L3 9.5l6.3-.9Z"/>
+  {%- elif name == "check" -%}<path d="m4 12 5 5L20 6"/>
+  {%- elif name == "hide" -%}<path d="M3 3l18 18M10.6 5.2A9.9 9.9 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3.3 4M6.3 8.3A17 17 0 0 0 2 12s4 7 10 7a9.8 9.8 0 0 0 4-.85"/>
+  {%- elif name == "broken" -%}<path d="M18.4 9.6a5 5 0 0 0-7.1-7.1L9 4.7"/><path d="M5.6 14.4a5 5 0 0 0 7.1 7.1L15 19.3"/><path d="m8 16 8-8"/><path d="M2 2l20 20"/>
+  {%- elif name == "ext" -%}<path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>
+  {%- elif name == "chev" -%}<path d="m6 9 6 6 6-6"/>
+  {%- elif name == "alert" -%}<circle cx="12" cy="12" r="9"/><path d="M12 8v4.5M12 16h.01"/>
+  {%- elif name == "grid" -%}<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>
+  {%- elif name == "rows" -%}<rect x="3" y="4" width="18" height="5" rx="1.5"/><rect x="3" y="15" width="18" height="5" rx="1.5"/>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro svg(name, size=14) -%}
+<svg width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ icon(name) }}</svg>
+{%- endmacro %}
+
+{% block content %}
+{# ---- 0. etkin arama profili: hangi parametre setiyle bakiyoruz ---- #}
+<div class="profilebar">
+  <span class="tag-label">Arama profili</span>
+  <span class="name {% if not active_profile %}none{% endif %}">
+    {{ active_profile or "profil seçilmedi" }}
+  </span>
+  <form method="post" action="/profil-sec">
+    <input type="hidden" name="back" value="/">
+    <select name="profile_id" aria-label="Arama profili seç">
+      <option value="0">— profil yok —</option>
+      {% for p in switch_profiles or [] %}
+      <option value="{{ p['id'] }}" {% if p['is_active'] %}selected{% endif %}>{{ p["name"] }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-sm" type="submit">Geç</button>
+  </form>
+</div>
+
+{# ---- 1. durum karolari: liste okunmadan once "veri ne kadar taze" cevabi ---- #}
+<section class="tiles" aria-label="Özet">
+  <a class="tile signal" href="/?mode=remote&sort=date">
+    <b data-stat="remote">{{ stats.remote }}</b><span>uzaktan</span>
+  </a>
+  <a class="tile amber" href="/?mode=hybrid&sort=date">
+    <b data-stat="hybrid">{{ stats.hybrid }}</b><span>hibrit</span>
+  </a>
+  <a class="tile violet" href="/?contract=1&sort=score">
+    <b data-stat="contract">{{ stats.contract }}</b><span>proje bazlı</span>
+  </a>
+  <a class="tile" href="/?sort=new">
+    <b data-stat="new_24h">{{ stats.new_24h }}</b><span>son 24 saat</span>
+  </a>
+  <a class="tile" href="/?days=7&sort=date">
+    <b data-stat="fresh_7d">{{ stats.fresh_7d }}</b><span>son 7 günde yayınlanan</span>
+  </a>
+  <a class="tile amber" href="/?flag=problem&sort=score">
+    <b data-stat="problem">{{ stats.problem }}</b><span>sorunlu ilan</span>
+  </a>
+  <a class="tile coral" href="/?closed=1">
+    <b data-stat="closed">{{ stats.closed }}</b><span>kapandı</span>
+  </a>
+</section>
+
+{# ---- 2. hizli filtreler ----
+     Acikken tekrar tiklanirsa filtre BIRAKILIR: basili cipin adresi "/" olur,
+     yoksa kullanici filtreden cikmak icin Sifirla'yi aramak zorunda kaliyordu. #}
+{% macro chip(etkin, adres, etiket, ikon="") -%}
+<a class="chip{% if ikon %} with-icon icon-{{ ikon }}{% endif %}"
+   href="{{ '/' if etkin else adres }}" aria-pressed="{{ 'true' if etkin else 'false' }}"
+   title="{{ 'Filtreyi kaldır' if etkin else etiket }}">
+  {%- if ikon %}{{ svg(ikon, 14) }}{% endif %}{{ etiket }}
+</a>
+{%- endmacro %}
+
+<div class="chips">
+  {{ chip(filters.mode == 'remote' and filters.contract, '/?mode=remote&contract=1&sort=date',
+          'Uzaktan + proje bazlı') }}
+  {{ chip(filters.status == 'shortlist', '/?status=shortlist', 'Takip listem', 'star') }}
+  {{ chip(filters.status == 'applied', '/?status=applied', 'Başvurduklarım', 'check') }}
+</div>
+
+{# ---- 3. detayli filtreler: gruplara ayrildi, isaret kutulari tek serit oldu ---- #}
+<details class="card panel" {% if filters.q or filters.exclude or filters.source or filters.country or filters.date_from or filters.date_to %}open{% endif %}>
+  <summary>
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+    Filtreler
+    <span class="hint">min skor {{ filters.min_score }}</span>
+    <span class="chev">{{ svg("chev", 18) }}</span>
+  </summary>
+
+  <form class="filters" method="get" action="/">
+    <p class="filter-legend">Ne aranıyor</p>
+    <div class="filter-group">
+      <div class="field">
+        <label for="f-q">Ara</label>
+        <input id="f-q" type="search" name="q" value="{{ filters.q }}" placeholder="başlık, firma, açıklama">
+      </div>
+      <div class="field">
+        <label for="f-ex">Hariç tut</label>
+        <input id="f-ex" type="text" name="exclude" value="{{ filters.exclude }}" placeholder="örn: intern, onsite">
+      </div>
+      <div class="field">
+        <label for="f-score">Min skor</label>
+        <input id="f-score" type="number" name="min_score" value="{{ filters.min_score }}">
+      </div>
+    </div>
+
+    <p class="filter-legend">Kapsam</p>
+    <div class="filter-group">
+      <div class="field">
+        <label for="f-mode">Çalışma şekli</label>
+        <select id="f-mode" name="mode">
+          <option value="">Hepsi</option>
+          <option value="remote" {% if filters.mode == "remote" %}selected{% endif %}>Uzaktan</option>
+          <option value="remote_or_hybrid" {% if filters.mode == "remote_or_hybrid" %}selected{% endif %}>Uzaktan + hibrit</option>
+          <option value="hybrid" {% if filters.mode == "hybrid" %}selected{% endif %}>Hibrit</option>
+          <option value="onsite" {% if filters.mode == "onsite" %}selected{% endif %}>Yerinde</option>
+          <option value="unknown" {% if filters.mode == "unknown" %}selected{% endif %}>Belirsiz</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-source">Kaynak</label>
+        <select id="f-source" name="source">
+          <option value="">Hepsi</option>
+          {% for s in sources %}<option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-country">Ülke</label>
+        <input id="f-country" name="country" value="{{ filters.country }}" list="country-list" placeholder="Hepsi">
+        <datalist id="country-list">{% for c in countries %}<option value="{{ c }}">{% endfor %}</datalist>
+      </div>
+      <div class="field">
+        <label for="f-status">Durum</label>
+        <select id="f-status" name="status">
+          <option value="">Hepsi</option>
+          <option value="new" {% if filters.status == "new" %}selected{% endif %}>Yeni</option>
+          <option value="shortlist" {% if filters.status == "shortlist" %}selected{% endif %}>Takipte</option>
+          <option value="applied" {% if filters.status == "applied" %}selected{% endif %}>Başvuruldu</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-flag">İlan sağlığı</label>
+        <select id="f-flag" name="flag">
+          <option value="">Hepsi</option>
+          <option value="clean" {% if filters.flag == "clean" %}selected{% endif %}>Yalnızca sorunsuz</option>
+          <option value="problem" {% if filters.flag == "problem" %}selected{% endif %}>Yalnızca sorunlu</option>
+        </select>
+      </div>
+    </div>
+
+    <p class="filter-legend">Tarih</p>
+    <div class="filter-group">
+      <div class="field">
+        <label for="f-days">Yayın tarihi</label>
+        <select id="f-days" name="days">
+          <option value="0">Fark etmez</option>
+          <option value="1" {% if filters.days == 1 %}selected{% endif %}>Son 24 saat</option>
+          <option value="3" {% if filters.days == 3 %}selected{% endif %}>Son 3 gün</option>
+          <option value="7" {% if filters.days == 7 %}selected{% endif %}>Son 7 gün</option>
+          <option value="14" {% if filters.days == 14 %}selected{% endif %}>Son 14 gün</option>
+          <option value="30" {% if filters.days == 30 %}selected{% endif %}>Son 30 gün</option>
+        </select>
+      </div>
+      {# tarih araligi doluysa "Yayin tarihi" secimi yok sayilir #}
+      <div class="field">
+        <label for="f-from">Aralık — başlangıç</label>
+        <input id="f-from" type="date" name="date_from" value="{{ filters.date_from }}">
+      </div>
+      <div class="field">
+        <label for="f-to">Aralık — bitiş</label>
+        <input id="f-to" type="date" name="date_to" value="{{ filters.date_to }}">
+      </div>
+      <div class="field">
+        <label for="f-datefield">Aralık neye göre</label>
+        <select id="f-datefield" name="date_field">
+          <option value="posted" {% if filters.date_field != "seen" %}selected{% endif %}>İlan tarihi</option>
+          <option value="seen" {% if filters.date_field == "seen" %}selected{% endif %}>Sisteme düşme tarihi</option>
+        </select>
+      </div>
+    </div>
+
+    <p class="filter-legend">Sıralama ve ek koşullar</p>
+    <div class="filter-group">
+      <div class="field">
+        <label for="f-sort">Sırala</label>
+        <select id="f-sort" name="sort">
+          <optgroup label="Uygunluk">
+            <option value="score" {% if filters.sort == "score" %}selected{% endif %}>Skora göre (yüksekten)</option>
+            <option value="score_asc" {% if filters.sort == "score_asc" %}selected{% endif %}>Skora göre (düşükten)</option>
+            <option value="mode" {% if filters.sort == "mode" %}selected{% endif %}>Çalışma şekli önceliği</option>
+          </optgroup>
+          <optgroup label="Bütçe">
+            <option value="budget" {% if filters.sort == "budget" %}selected{% endif %}>Bütçe (yüksekten)</option>
+            <option value="budget_asc" {% if filters.sort == "budget_asc" %}selected{% endif %}>Bütçe (düşükten)</option>
+          </optgroup>
+          <optgroup label="Tarih">
+            <option value="date" {% if filters.sort == "date" %}selected{% endif %}>İlan tarihi (yeniden eskiye)</option>
+            <option value="date_asc" {% if filters.sort == "date_asc" %}selected{% endif %}>İlan tarihi (eskiden yeniye)</option>
+            <option value="new" {% if filters.sort == "new" %}selected{% endif %}>Sisteme düşme sırası</option>
+          </optgroup>
+          <optgroup label="Diğer">
+            <option value="company" {% if filters.sort == "company" %}selected{% endif %}>Firmaya göre</option>
+          </optgroup>
+        </select>
+      </div>
+    </div>
+
+    {# dort ayri kutucuk yerine tek serit: acik olan turkuaz yanar #}
+    <div class="filter-toggles">
+      <label class="check"><input type="checkbox" name="contract" value="1" {% if filters.contract %}checked{% endif %}> Proje bazlı</label>
+      <label class="check"><input type="checkbox" name="budget" value="1" {% if filters.budget %}checked{% endif %}> Bütçesi belli</label>
+      <label class="check"><input type="checkbox" name="closed" value="1" {% if filters.closed %}checked{% endif %}> Kapananlar</label>
+      <label class="check"><input type="checkbox" name="supply" value="1" {% if filters.supply %}checked{% endif %}> Hizmet satan ilanlar</label>
+    </div>
+
+    <div class="field actions">
+      <button class="btn-primary" type="submit">Filtrele</button>
+      <a class="btn" href="/">Sıfırla</a>
+    </div>
+  </form>
+</details>
+
+<div class="resultbar">
+  <div>
+    {% if total %}<b>{{ shown_from }}–{{ shown_to }}</b> / {{ total }} ilan · sayfa {{ page }}/{{ total_pages }}
+    {% else %}Sonuç yok{% endif %}
+    {# Iki gorunum: detayli liste (varsayilan) ve izgara (ayni anda daha cok ilan).
+       Secim tarayicida saklanir; sayfa boyanmadan <head>'de uygulanir. #}
+    {% if rows %}
+    <button class="btn btn-sm viewbtn" id="view-toggle" type="button" aria-pressed="false">
+      <span class="v-grid">{{ svg("grid", 14) }}Izgara</span>
+      <span class="v-rows">{{ svg("rows", 14) }}Liste</span>
+    </button>
+    {% endif %}
+  </div>
+  <div>
+    Veritabanı tazeliği: <b>{{ stats.last_seen | since or "-" }}</b>
+    {% if scan and scan.enabled %} · otomatik tarama her {{ scan.interval_minutes }} dk{% endif %}
+    {# Liste DB'den okunur: bir ilanin kapandigini ancak linki acilinca ogreniriz. #}
+    {% if total and not filters.closed and can('sweep_links') %}
+    <button class="btn btn-sm" id="sweep-now" type="button"
+            data-total="{{ total }}" data-query="{{ base_query }}"
+            title="Bu filtredeki ilanların linkini tek tek açar, kapananları listeden düşürür.">
+      Listeyi kontrol et
+    </button>
+    <button class="btn btn-sm" id="sweep-cancel" type="button" hidden>Durdur</button>
+    {% endif %}
+  </div>
+</div>
+
+{% if rows %}
+<div class="list">
+  {% for row in rows %}
+    {% set mode = row["work_mode"] or "unknown" %}
+    {% set score = row["score"] or 0 %}
+    {% set pct = [score, 50] | min / 50 %}
+    {% set posted = row["posted_at"] or row["first_seen_at"] %}
+    {% set gun = posted | age_days %}
+    {% set sorunlu = (row["quality_flag"] or "") == "problem" %}
+    <article class="card item {{ mode }} {% if row['is_active'] == 0 %}closed{% endif %} {% if sorunlu %}flagged{% endif %}"
+             style="animation-delay:{{ loop.index0 * 22 }}ms">
+      {# skor halkasi: 50 puan tam tur; sorunluysa sari halka ile cevrelenir #}
+      <div class="score {% if score >= 30 %}hi{% elif score >= 18 %}mid{% endif %}">
+        <div class="ring">
+          <svg width="100%" height="100%" viewBox="0 0 52 52" aria-hidden="true">
+            <circle class="track" cx="26" cy="26" r="22"/>
+            <circle class="bar" cx="26" cy="26" r="22"
+                    stroke-dasharray="138.2" stroke-dashoffset="{{ (138.2 * (1 - pct)) | round(1) }}"/>
+          </svg>
+          <span class="val">{{ score }}</span>
+        </div>
+        <small>skor</small>
+      </div>
+
+      <div class="body">
+        <div class="titleline">
+          {% if sorunlu %}
+          <span class="flagdot" title="Bu ilanda sorun var: {{ row['flag_reason'] or 'işaretlendi' }}"
+                aria-label="sorunlu ilan">!</span>
+          {% endif %}
+          <a class="title" href="{{ row['url'] }}" target="_blank" rel="noopener">
+            {{ row["title"] }}<span class="ext">{{ svg("ext", 12) }}</span>
+          </a>
+          <span class="pill {{ mode }}">
+            {%- if mode == "remote" %}UZAKTAN{% elif mode == "hybrid" %}HİBRİT{% elif mode == "onsite" %}YERİNDE{% else %}BELİRSİZ{% endif -%}
+            {%- if row["remote_percent"] %} %{{ row["remote_percent"] }}{% endif -%}
+          </span>
+          {% if row["source"] == "ted" %}<span class="pill tender" title="AB kamu ihalesi — başvuru ihale dosyasıyla yapılır">İHALE</span>
+          {% elif row["is_contract"] == 1 %}<span class="pill contract">PROJE BAZLI</span>{% endif %}
+          {% if gun is not none and gun <= 2 and row["is_active"] == 1 %}<span class="pill fresh">TAZE</span>{% endif %}
+          {% if sorunlu %}<span class="pill problem">SORUNLU</span>{% endif %}
+          {% if row["is_active"] == 0 %}<span class="pill closed">KAPANDI</span>
+          {% elif row["missing_streak"] and row["missing_streak"] >= suspect_after %}<span class="pill suspect"
+                title="Kaynağın listesinde görünmüyor; linki kontrol ediliyor. Yayındaysa işaret kalkar.">KONTROL EDİLİYOR</span>{% endif %}
+          {% if row["is_supply"] == 1 %}<span class="pill closed">ARZ · HİZMET İLANI</span>{% endif %}
+          {% if row["mark"] == "shortlist" %}<span class="pill contract">TAKİPTE</span>
+          {% elif row["mark"] == "applied" %}<span class="pill contract">BAŞVURULDU</span>{% endif %}
+        </div>
+
+        <div class="meta">
+          {# sinif adlari izgara gorunumunun neyi gizleyecegini bilmesi icin #}
+          {% if row["company"] %}<span class="m-co">{{ svg("company") }}{{ row["company"] }}</span>{% endif %}
+          {% if row["location"] %}<span class="m-loc">{{ svg("pin") }}{{ row["location"] }}</span>{% endif %}
+          {% if row["duration"] %}<span class="m-dur">{{ svg("clock") }}{{ row["duration"] }}</span>{% endif %}
+          {% if row["budget_raw"] %}<span class="m-bud">{{ svg("money") }}{{ row["budget_raw"] }}</span>{% endif %}
+          <span class="age {% if gun is not none and gun <= 3 %}fresh{% elif gun is not none and gun <= 14 %}recent{% else %}old{% endif %}"
+                title="ilan tarihi: {{ (row['posted_at'] or row['first_seen_at'] or '')[:10] }} · son görülme: {{ row['last_seen_at'] | since }}">
+            {% if row["posted_at"] %}{{ row["posted_at"] | since }}{% else %}{{ row["first_seen_at"] | since }} sisteme düştü{% endif %}
+          </span>
+          <span class="src">{{ row["source"] }}</span>
+          {# ayni ilan baska panolarda da yayinda: dedupe bunu topluyordu ama gosterilmiyordu #}
+          {% if as_list(row["also_seen_on"]) %}
+          <span class="alsoseen" title="Aynı ilan bu kaynaklarda da bulundu">
+            ayrıca: {{ as_list(row["also_seen_on"]) | join(", ") }}
+          </span>
+          {% endif %}
+        </div>
+
+        {# ---- neden bu puan: keywords_hit veritabaninda duruyordu, hic gosterilmiyordu ---- #}
+        {% set hits = as_list(row["keywords_hit"]) %}
+        {% if hits %}
+        <details class="whyscore">
+          <summary>
+            {{ svg("chev", 14) }} Neden {{ score }} puan?
+            <span class="muted">{{ hits | length }} eşleşme</span>
+          </summary>
+          <div class="whygrid">
+            {% for hit in hits %}
+              {% set w = hit_weights.get(hit) %}
+              <span class="hit {% if w and w > 0 %}plus{% elif w and w < 0 %}minus{% else %}zero{% endif %}">
+                {{ hit }}{% if w %}<b>{% if w > 0 %}+{% endif %}{{ w }}</b>{% endif %}
+              </span>
+            {% endfor %}
+          </div>
+          <p class="whynote">
+            Başlıkta geçen kelime <b>×{{ title_multiplier }}</b> sayılır, o yüzden toplam
+            buradaki sayıların düz toplamından yüksek çıkabilir. Ağırlıksız görünenler
+            zorunlu kelimelerdir — puan vermez, ilanın listeye girmesini sağlar.
+          </p>
+        </details>
+        {% endif %}
+
+        {% if sorunlu %}
+        <p class="flagnote">
+          {{ svg("alert", 15) }}
+          <span>
+            <b>{{ row["flag_reason"] or "işaretlendi" }}</b> — ilan yayında olabilir ama açılmıyor.
+            {% if row["flagged_by"] and row["flagged_by"] != "otomatik" %}({{ row["flagged_by"] }} işaretledi){% endif %}
+          </span>
+        </p>
+        {% endif %}
+
+        {% if row["description"] %}<p class="desc">{{ row["description"][:300] }}</p>{% endif %}
+        {% if as_list(row["skills"]) %}
+        <div class="tags">{% for s in as_list(row["skills"])[:8] %}<span class="tag">{{ s }}</span>{% endfor %}</div>
+        {% endif %}
+      </div>
+
+      <div class="rowactions">
+        {% set back = "/?" ~ base_query ~ "&page=" ~ page %}
+        {% if can('mark_status') %}
+        <form method="post" action="/status">
+          <input type="hidden" name="fingerprint" value="{{ row['fingerprint'] }}">
+          <input type="hidden" name="status" value="{% if row['mark'] == 'shortlist' %}new{% else %}shortlist{% endif %}">
+          <input type="hidden" name="back" value="{{ back }}">
+          <button type="submit" class="iconbtn {% if row['mark'] == 'shortlist' %}on{% endif %}"
+                  title="{% if row['mark'] == 'shortlist' %}Takipten çıkar{% else %}Takibe al{% endif %}">
+            {{ svg("star", 15) }}<span>{% if row["mark"] == "shortlist" %}Takipte{% else %}Takip{% endif %}</span>
+          </button>
+        </form>
+        <form method="post" action="/status">
+          <input type="hidden" name="fingerprint" value="{{ row['fingerprint'] }}">
+          <input type="hidden" name="status" value="applied">
+          <input type="hidden" name="back" value="{{ back }}">
+          <button type="submit" class="iconbtn {% if row['mark'] == 'applied' %}on{% endif %}" title="Başvurdum olarak işaretle">
+            {{ svg("check", 15) }}<span>Başvurdum</span>
+          </button>
+        </form>
+        {% endif %}
+        {% if can('flag_projects') %}
+        <form method="post" action="/isaret">
+          <input type="hidden" name="fingerprint" value="{{ row['fingerprint'] }}">
+          <input type="hidden" name="reason" value="elle işaretlendi">
+          <input type="hidden" name="back" value="{{ back }}">
+          <button type="submit" class="iconbtn {% if sorunlu %}on{% endif %}"
+                  title="{% if sorunlu %}Sorunlu işaretini kaldır{% else %}İlan açılmıyor / bölge kısıtlı — sorunlu işaretle{% endif %}">
+            {{ svg("alert", 15) }}<span>{% if sorunlu %}Sorunlu{% else %}İşaretle{% endif %}</span>
+          </button>
+        </form>
+        {% endif %}
+        {% if row["is_active"] == 1 and can('report_closed') %}
+        <form method="post" action="/kapandi"
+              data-confirm="Bu ilan kapandı olarak işaretlenecek. Kapananlar listesinde kalır; Ayarlar > Bakım'dan topluca silebilirsiniz."
+              data-confirm-label="Evet, kapandı">
+          <input type="hidden" name="fingerprint" value="{{ row['fingerprint'] }}">
+          <input type="hidden" name="back" value="{{ back }}">
+          <button type="submit" class="iconbtn danger"
+                  title="Linke tıklayınca 'artık yayında değil' mi çıktı? Kapandı olarak işaretleyin — otomatik doğrulamanın ulaşamadığı ilanları böyle kapatıyoruz.">
+            {{ svg("broken", 15) }}<span>Kapandı</span>
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </article>
+  {% endfor %}
+</div>
+
+<nav class="pager" aria-label="Sayfalama">
+  {% if page > 1 %}
+    <a href="/?{{ base_query }}&page=1" aria-label="İlk sayfa">«</a>
+    <a href="/?{{ base_query }}&page={{ page - 1 }}" rel="prev">‹ önceki</a>
+  {% else %}
+    <span class="disabled">«</span><span class="disabled">‹ önceki</span>
+  {% endif %}
+  {% if pages and pages[0] > 1 %}<span class="disabled">…</span>{% endif %}
+  {% for p in pages %}
+    {% if p == page %}<span class="active" aria-current="page">{{ p }}</span>
+    {% else %}<a href="/?{{ base_query }}&page={{ p }}">{{ p }}</a>{% endif %}
+  {% endfor %}
+  {% if pages and pages[-1] < total_pages %}<span class="disabled">…</span>{% endif %}
+  {% if page < total_pages %}
+    <a href="/?{{ base_query }}&page={{ page + 1 }}" rel="next">sonraki ›</a>
+    <a href="/?{{ base_query }}&page={{ total_pages }}" aria-label="Son sayfa">»</a>
+  {% else %}
+    <span class="disabled">sonraki ›</span><span class="disabled">»</span>
+  {% endif %}
+</nav>
+{% else %}
+  <div class="card empty">
+    <svg class="art" width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="2"/><path d="M12 12 20 6"/>
+    </svg>
+    <h2>Bu filtrelerle ilan yok</h2>
+    <p>Filtreleri gevşetebilir ya da taramayı elle başlatabilirsiniz.</p>
+    <p style="margin-top:14px"><a class="btn" href="/">Filtreleri sıfırla</a></p>
+  </div>
+{% endif %}
+{% endblock %}

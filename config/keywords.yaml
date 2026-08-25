@@ -1,0 +1,65 @@
+# Proje skorlama kurallari.
+# Metin = baslik + aciklama + yetenekler + calisma sekli + konum.
+# Baslikta gecen kelime title_multiplier ile carpilir.
+
+title_multiplier: 2.0
+
+# Bunlardan en az biri yoksa ilan tamamen elenir.
+must_any:
+  - abap
+  - sap
+
+boost:
+  abap: 6
+  "sap abap": 8
+  "s/4hana": 3
+  s4hana: 3
+  hana: 2
+  fiori: 2
+  ui5: 2
+  cds: 2
+  rap: 3
+  odata: 2
+  btp: 2
+  idoc: 1
+  # calisma sekli / sozlesme (asil hedef)
+  freelance: 6
+  freelancer: 6
+  contract: 5
+  contractor: 4
+  "c2c": 3
+  "b2b": 3
+  interim: 3
+  "proje bazli": 6
+  "sozlesmeli": 4
+  # kidem
+  senior: 2
+  lead: 1
+  consultant: 2
+  "danisman": 2
+
+penalty:
+  intern: 5
+  stajyer: 5
+  "yeni mezun": 4
+  "entry level": 3
+  "relocation required": 4
+  "must be onsite": 4
+  "no remote": 5
+
+hard_exclude:
+  - stajyer
+  - internship
+
+signals:
+  remote_boost: 12        # ASIL HEDEF: uzaktan calisilabilen proje
+  hybrid_boost: 5         # ikinci tercih
+  onsite_penalty: 4       # yerinde is puan kaybeder
+  contract_boost: 8       # proje bazli / freelance sozlesme
+  permanent_penalty: 3    # kadrolu pozisyon
+  fresh_boost: 3          # son gunlerde yayinlanmis ilan
+  fresh_days: 7
+  country_boost:
+    turkey: 2             # esitlikte TR ilani one gecsin (zorunlu degil)
+
+min_score: 10

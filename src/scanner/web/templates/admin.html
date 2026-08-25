@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Admin paneli · İlan Tarayıcı{% endblock %}
+
+{% block content %}
+{% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
+{% if error %}<div class="flash err" role="alert">{{ error }}</div>{% endif %}
+
+<div class="settings-intro card tone-admin admin-panel">
+  <span class="admin-badge">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 2.5 4 6v6c0 5 3.4 8.6 8 9.5 4.6-.9 8-4.5 8-9.5V6l-8-3.5Z"/>
+    </svg>
+    Admin paneli
+  </span>
+  <h1>Kullanıcı yönetimi</h1>
+  <p>
+    Kullanıcı açın, şifrelerini yönetin, her birinin neyi yapabileceğini ve hangi
+    <b>arama profillerine</b> geçebileceğini tek tek belirleyin. Yönetici işareti açık olan
+    kullanıcı <b>bütün</b> yetkilere ve <b>bütün</b> profillere sahiptir; aşağıdaki anahtarlar
+    onun için geçerli değildir.
+  </p>
+  <p class="muted">
+    Bu sayfayı yalnızca “Kullanıcıları yönet” yetkisi olanlar görebilir — diğer kullanıcılar
+    üst menüde böyle bir sekme görmez.
+  </p>
+</div>
+
+{# ---------- yeni kullanici ---------- #}
+<section class="card settings-card tone-admin">
+  <header class="settings-head">
+    <h2>Yeni kullanıcı oluştur</h2>
+  </header>
+
+  <form method="post" action="/ayarlar/kullanici-ekle" class="filters">
+    <div class="field">
+      <label for="u-name">Kullanıcı adı</label>
+      <input id="u-name" name="username" placeholder="örn: selim" required>
+    </div>
+    <div class="field">
+      <label for="u-full">Ad soyad <span class="muted">(isteğe bağlı)</span></label>
+      <input id="u-full" name="full_name" placeholder="Selim Akıncı">
+    </div>
+    <div class="field">
+      <label for="u-pass">Şifre <span class="muted">(en az 6 karakter)</span></label>
+      <input id="u-pass" name="password" type="password" autocomplete="new-password" required>
+    </div>
+    <div class="filter-toggles">
+      <label class="check"><input type="checkbox" name="is_admin" value="1"> Yönetici olsun</label>
+    </div>
+    <div class="field actions">
+      <button class="btn-primary" type="submit">Kullanıcı oluştur</button>
+    </div>
+  </form>
+</section>
+
+{# ---------- kayitli kullanicilar ---------- #}
+<section class="card settings-card tone-admin">
+  <header class="settings-head">
+    <h2>Kayıtlı kullanıcılar <span class="muted">({{ users | length }})</span></h2>
+    <p class="muted">Ayrıntıları açmak için kullanıcının üstüne tıklayın.</p>
+  </header>
+
+  {% for u in users %}
+  <details class="card" style="margin-bottom:10px; padding:14px 16px"
+           {% if u.id == user.id %}open{% endif %}>
+    <summary style="cursor:pointer; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+      <span class="userchip">
+        <span class="avatar">{{ u.initials }}</span>
+        <span>
+          <b>{{ u.display_name }}</b>
+          <span>{{ u.username }}{% if u.is_admin %} · yönetici{% endif %}{% if not u.is_active %} · pasif{% endif %}</span>
+        </span>
+      </span>
+      <span class="muted" style="margin-left:auto">
+        {% if u.last_login_at %}son giriş {{ u.last_login_at | since }}{% else %}hiç giriş yapmadı{% endif %}
+      </span>
+    </summary>
+
+    {# yetkiler + profil atamasi #}
+    <form method="post" action="/ayarlar/kullanici-yetki" style="margin-top:16px">
+      <input type="hidden" name="user_id" value="{{ u.id }}">
+      <div class="filters" style="margin-bottom:14px">
+        <div class="field">
+          <label for="uf-{{ u.id }}">Ad soyad</label>
+          <input id="uf-{{ u.id }}" name="full_name" value="{{ u.full_name }}">
+        </div>
+      </div>
+      <div class="filter-toggles" style="margin-bottom:16px">
+        <label class="check"><input type="checkbox" name="is_admin" value="1" {% if u.is_admin %}checked{% endif %}> Yönetici</label>
+        <label class="check"><input type="checkbox" name="is_active" value="1" {% if u.is_active %}checked{% endif %}> Hesap aktif</label>
+      </div>
+
+      {# --- atanan arama profilleri --- #}
+      <h4 class="admin-sub">Erişebileceği arama profilleri</h4>
+      {% if profiles %}
+      <p class="muted" style="margin:0 0 10px">
+        {% if u.is_admin %}Yönetici olduğu için hepsine erişir; aşağıdaki seçim dikkate alınmaz.
+        {% else %}Kullanıcı yalnızca işaretlediklerinizin arasında geçiş yapabilir.{% endif %}
+      </p>
+      <div class="assign-grid" style="margin-bottom:8px">
+        {% for p in profiles %}
+        <label class="assign-chip">
+          <input type="checkbox" name="profil" value="{{ p['id'] }}"
+                 {% if p['id'] in assigned_profiles.get(u.id, []) %}checked{% endif %}>
+          <span class="tick">✓</span>{{ p["name"] }}
+        </label>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted" style="margin:0 0 10px">Henüz arama profili yok.</p>
+      {% endif %}
+
+      <h4 class="admin-sub">Yetkiler</h4>
+      {% if u.is_admin %}
+      <p class="muted" style="margin:0 0 12px">
+        Yönetici olduğu için aşağıdaki anahtarlar dikkate alınmaz — tüm yetkiler açıktır.
+      </p>
+      {% endif %}
+
+      <div class="perm-grid">
+        {% for group_name, perms in permission_groups %}
+        <div class="perm-group">
+          <h4>{{ group_name }}</h4>
+          {% for key, label, note in perms %}
+          <label class="perm-row">
+            <input type="checkbox" name="perm" value="{{ key }}"
+                   {% if u.permissions.get(key) %}checked{% endif %}>
+            <span class="knob" aria-hidden="true"></span>
+            <span class="perm-text">
+              <b>{{ label }}</b>
+              <span>{{ note }}</span>
+            </span>
+          </label>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="settings-save">
+        <button class="btn-primary" type="submit">Yetkileri kaydet</button>
+      </div>
+    </form>
+
+    {# sifre sifirlama + silme #}
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;
+                padding-top:14px; border-top:1px solid var(--line)">
+      <form method="post" action="/ayarlar/kullanici-sifre"
+            style="display:flex; gap:8px; align-items:center; flex-wrap:wrap"
+            data-confirm="“{{ u.username }}” kullanıcısının şifresi değiştirilecek ve açık oturumları kapanacak."
+            data-confirm-label="Evet, değiştir">
+        <input type="hidden" name="user_id" value="{{ u.id }}">
+        <input name="password" type="password" autocomplete="new-password"
+               placeholder="yeni şifre" required style="min-width:170px">
+        <button class="btn btn-sm" type="submit">Şifreyi değiştir</button>
+      </form>
+      {% if u.id != user.id %}
+      <form method="post" action="/ayarlar/kullanici-sil"
+            data-confirm="“{{ u.username }}” kullanıcısı kalıcı olarak silinecek."
+            data-confirm-label="Evet, sil">
+        <input type="hidden" name="user_id" value="{{ u.id }}">
+        <button class="btn btn-sm danger" type="submit">Kullanıcıyı sil</button>
+      </form>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+</section>
+{% endblock %}

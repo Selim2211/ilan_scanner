@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SAP Proje Radari
+Comment=Paneli baslatir ve tarayicida acar
+# @KOK@ Radar_Baslat.sh tarafindan kurulum klasoruyle degistirilir.
+Exec=bash -c '"@KOK@/Radar_Baslat.sh"'
+Path=@KOK@
+Icon=system-search
+Terminal=true
+Categories=Office;Utility;

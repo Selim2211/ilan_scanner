@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>{% block title %}İlan Tarayıcı{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
+<link rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2339d8c8' stroke-width='2.5'><circle cx='12' cy='12' r='9'/><circle cx='12' cy='12' r='3.5'/><path d='M12 12 19 5'/></svg>">
+{# Tema, sayfa boyanmadan ONCE uygulanir: yoksa koyu tema secili kullanici her
+   aciliste bir kare beyaz ekran gorurdu. #}
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem("radar-tema");
+      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      // liste gorunumu de burada: sonradan uygulanirsa kartlar bir kare buyuk cizilip kuculurdu
+      if (localStorage.getItem("radar-gorunum") === "grid") document.documentElement.dataset.view = "grid";
+    } catch (e) { /* localStorage kapali olabilir */ }
+  })();
+</script>
+{% block style %}{% endblock %}
+</head>
+<body data-newest-seen="{{ newest_seen or '' }}">
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="dish">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M12 12 19 5"/>
+        </svg>
+      </span>
+      <span>İlan Tarayıcı<small>remote · proje bazlı</small></span>
+    </a>
+
+    <nav class="nav" aria-label="Ana gezinme">
+      <a href="/" {% if active_tab == 'list' %}aria-current="page"{% endif %}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        İlanlar
+      </a>
+      {% if can('view_notifications') %}
+      <a href="/bildirimler" {% if active_tab == 'notifications' %}aria-current="page"{% endif %}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+        </svg>
+        Bildirimler
+        <span class="badge-count" id="unread-badge" {% if not unread %}hidden{% endif %}>{{ unread }}</span>
+      </a>
+      {% endif %}
+      {% if can('view_settings') %}
+      <a href="/ayarlar" {% if active_tab == 'settings' %}aria-current="page"{% endif %}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        Ayarlar
+      </a>
+      {% endif %}
+      {# Admin sekmesi yalnizca yetkiliye gorunur - digerleri varligini bilmez #}
+      {% if can('manage_users') %}
+      <a class="nav-admin" href="/admin" {% if active_tab == 'admin' %}aria-current="page"{% endif %}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 2.5 4 6v6c0 5 3.4 8.6 8 9.5 4.6-.9 8-4.5 8-9.5V6l-8-3.5Z"/>
+        </svg>
+        Admin
+      </a>
+      {% endif %}
+    </nav>
+
+    <div class="live" id="live" data-phase="{{ scan.phase if scan and scan.enabled else 'off' }}">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="live-text" id="live-text">
+        {% if scan and scan.enabled %}canlı: {{ scan.quick_minutes }} dk'da bir yeni ilan taraması{% else %}otomatik tarama kapalı{% endif %}
+      </span>
+      {# duraklatilmisken de calisir: dugmeye basan kullanici taramayi istiyordur #}
+      {% if can('trigger_scan') %}
+      <button class="btn btn-sm btn-primary" id="scan-now" type="button"
+              {% if not scan %}disabled title="Zamanlayıcı kurulu değil"{% endif %}>
+        Şimdi tara
+      </button>
+      {% endif %}
+    </div>
+
+    {# ---- sag ust: tema anahtari + kullanici yuvarlagi ---- #}
+    <div class="topbar-right">
+    <button class="theme-btn" id="theme-btn" type="button"
+            aria-label="Koyu / açık tema" title="Koyu / açık tema">
+      <svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2"/>
+        <path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/>
+      </svg>
+      <svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>
+      </svg>
+    </button>
+
+    {% if user %}
+    <div class="account" id="account">
+      <button class="avatar" id="avatar-btn" type="button" aria-haspopup="true" aria-expanded="false"
+              title="{{ user.display_name }}">{{ user.initials }}</button>
+      <div class="account-menu" id="account-menu" hidden>
+        <div class="account-head">
+          <b>{{ user.display_name }}</b>
+          <span>{{ user.username }}{% if user.is_admin %} · yönetici{% endif %}</span>
+        </div>
+        {% if can('view_settings') %}
+        <a href="/ayarlar#hesap">Şifremi değiştir</a>
+        {% endif %}
+        <form method="post" action="/cikis">
+          <button type="submit" class="account-out">Çıkış yap</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    </div>
+  </header>
+
+  <main>{% block content %}{% endblock %}</main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <span id="toast-text"></span>
+    <button class="btn btn-sm btn-primary" id="toast-reload" type="button">Listeyi tazele</button>
+    <button class="btn btn-sm iconbtn" id="toast-dismiss" type="button" aria-label="Kapat">✕</button>
+  </div>
+
+  {# ---- onay kutusu: silme gibi geri alinamaz islemler once buradan gecer ---- #}
+  <div class="modal" id="confirm-modal" hidden role="dialog" aria-modal="true"
+       aria-labelledby="confirm-title">
+    <div class="modal-card">
+      <h3 id="confirm-title">Emin misiniz?</h3>
+      <p id="confirm-text"></p>
+      <div class="modal-actions">
+        <button class="btn" type="button" id="confirm-no">Vazgeç</button>
+        <button class="btn-primary danger" type="button" id="confirm-yes">Evet, sil</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v={{ asset_v }}" defer></script>
+</body>
+</html>
