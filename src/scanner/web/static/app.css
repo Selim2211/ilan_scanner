@@ -1128,30 +1128,26 @@ html:not([data-theme="dark"]) .theme-btn .moon { transform:rotate(0deg) scale(1)
   background:var(--violet-soft); padding:2px 8px; border-radius:var(--r-pill);
 }
 
-/* ---- ilan kartinin ustune gelince ekranin ortasinda acilan ozet penceresi ----
-   Tek paylasilan modal (index.html sayfa sonunda) - kart basina degil, hangi
-   karta gelinirse JS icerigini onunla degistirir. `hidden` oznitelik JS
-   tarafindan kaldirilip eklenir; gecis icin ayrica opacity/transform kullanilir
-   ki `hidden` aninda atlamak yerine yumusak acilsin/kapansin. */
-.ozet-modal-backdrop {
-  position:fixed; inset:0; z-index:50;
-  display:flex; align-items:center; justify-content:center; padding:24px;
-  background:rgba(0,0,0,.5);
-  opacity:0; transition:opacity .15s ease;
-}
-.ozet-modal-backdrop:not([hidden]) { opacity:1; }
-/* `hidden` HTML oznitelik display:none uygular; JS onu kaldirmadan once
-   opacity gecisi baslamasin diye ayni anda visibility de degisiyor. */
-.ozet-modal-backdrop[hidden] { display:flex; visibility:hidden; pointer-events:none; }
-.ozet-modal-backdrop:not([hidden]) { visibility:visible; pointer-events:auto; }
-
+/* ---- "Özet" dugmesine tiklaninca acilan ozet penceresi ----
+   Tek paylasilan popover (index.html sayfa sonunda) - kart basina degil,
+   hangi dugmeye tiklanirsa JS icerigini onunla degistirip dugmenin yanina
+   konumlandirir (position:fixed, sol/ust JS ile yazilir - bkz. app.js).
+   BILEREK TAM EKRAN MODAL DEGIL: arka plani karartmiyor, sayfanin geri
+   kalanini kilitlemiyor - kullanici baska bir karta tiklayabilir, yalnizca
+   disina tiklaninca ya da Esc ile kapanir. Acilis GECIKMESIZ: tiklaninca
+   `hidden` aninda kalkar, tek gecis kisa bir govde/opacity soluklasmasi. */
+/* Butonun yanina degil, HER ZAMAN ekranin ortasina acilir - alt siradaki
+   kartlarda buton-ankrajli konum ekran disina tasiyordu ("aşağı kaçıyor"). */
 .ozet-modal {
-  width:min(560px, 100%); max-height:min(560px, 100%); overflow-y:auto;
-  padding:22px 24px; border-radius:var(--r-lg);
+  position:fixed; z-index:50; top:50%; left:50%; transform:translate(-50%, -50%);
+  width:min(420px, calc(100vw - 24px));
+  max-height:min(70vh, 560px); overflow-y:auto;
+  padding:20px 22px; border-radius:var(--r-lg);
   background:var(--surface-2); border:1px solid var(--line-2); box-shadow:var(--shadow-2);
-  position:relative; transform:translateY(8px); transition:transform .15s ease;
+  opacity:0; transition:opacity .1s ease;
 }
-.ozet-modal-backdrop:not([hidden]) .ozet-modal { transform:none; }
+.ozet-modal[hidden] { display:block; visibility:hidden; pointer-events:none; }
+.ozet-modal:not([hidden]) { visibility:visible; pointer-events:auto; opacity:1; }
 
 .ozet-modal-kapat {
   position:absolute; top:10px; right:10px; width:30px; height:30px;
@@ -1194,43 +1190,3 @@ html:not([data-theme="dark"]) .theme-btn .moon { transform:rotate(0deg) scale(1)
   animation:ozet-don .7s linear infinite;
 }
 @keyframes ozet-don { to { transform:rotate(360deg); } }
-
-/* ---- imlecin yanindaki DOLAN halka ----
-   Kasitsiz acilmayi engeller: liste uzerinde gezinen fare bir kartta
-   ~0.9 sn durmadikca ozet penceresi acilmaz. Halka dolarken kullanici
-   ne olacagini goruyor ve karttan cikarak vazgecebiliyor.
-   conic-gradient + kutle maskesi: tek dugum, SVG/ekstra DOM gerekmiyor. */
-.ozet-halka {
-  position:fixed; z-index:45; width:26px; height:26px;
-  margin:-13px 0 0 14px;            /* imlecin hemen sag ustu */
-  border-radius:50%; pointer-events:none;
-  opacity:0; transition:opacity .12s ease;
-  background:conic-gradient(var(--signal) var(--aci, 0deg), transparent 0deg);
-  /* ortasi bos: halka gorunumu */
-  mask:radial-gradient(circle, transparent 7px, #000 8px);
-  -webkit-mask:radial-gradient(circle, transparent 7px, #000 8px);
-}
-.ozet-halka.doluyor { opacity:1; animation:ozet-dol var(--sure, 900ms) linear forwards; }
-/* Halka doldu, ozet hazirlaniyor (yapay zeka ~1.5 sn): belirsiz donusle
-   bekleme surdurulur - kullanici bos ekrana bakmaz. */
-.ozet-halka.bekliyor {
-  opacity:1; background:none; mask:none; -webkit-mask:none;
-  border:2px solid var(--line-2); border-top-color:var(--signal);
-  animation:ozet-don .7s linear infinite;
-}
-@property --aci { syntax:"<angle>"; inherits:false; initial-value:0deg; }
-@keyframes ozet-dol { from { --aci:0deg; } to { --aci:360deg; } }
-
-/* @property desteklemeyen tarayicida aci animasyonu calismaz; halka yine
-   gorunur olsun diye donen bir yay gosteriyoruz - islev ayni kalir. */
-@supports not (background: conic-gradient(red 1deg, transparent 0deg)) {
-  .ozet-halka {
-    background:none; border:2px solid var(--line-2); border-top-color:var(--signal);
-    mask:none; -webkit-mask:none;
-  }
-  .ozet-halka.doluyor { animation:ozet-don .7s linear infinite; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ozet-halka.doluyor { animation-timing-function:steps(4, end); }
-}

@@ -383,18 +383,16 @@
     });
   }
 
-  /* ---- ilan ozeti: karta gelince ekranin ortasinda acilan tek modal ----
-     20+ kart icin ayri ayri kutu yerine SAYFADA TEK modal (#ozet-modal) var;
-     hangi karta gelinirse icerigi onunla degistirilir. Veri /api/ozet'ten
-     gelir (yabanci dildeki aciklama orada Ingilizce'ye cevrilip cache'lenir).
+  /* ---- ilan ozeti: "Özet" dugmesine tiklaninca acilan tek popover ----
+     20+ kart icin ayri ayri kutu yerine SAYFADA TEK dugum (#ozet-modal) var;
+     hangi dugmeye tiklanirsa icerigi onunla degistirilip yanina konumlanir.
+     Veri /api/ozet'ten gelir (yabanci dildeki aciklama orada Ingilizce'ye
+     cevrilip cache'lenir).
 
-     Zamanlama iki noktada bilerek geciktirilmis:
-       - ACILIS 250ms: liste uzerinde hizli scroll/gecis yaparken her kartta
-         modal flaslamasin diye. Kullanici gercekten bir kartta DURURSA acilir.
-       - KAPANIS 200ms: bir karttan digerine gecerken modal kapanip yeniden
-         acilmasin diye - o sure icinde baska bir karta girilirse icerik
-         degistirilir, kapat/ac dongusu olmaz. Modal'in kendisine (fareyle
-         icerige dogru giderken) girilirse de kapanma iptal edilir. */
+     Eskiden karta gelince (hover) ~0.9 sn sonra kendiliginden aciliyordu;
+     kullanici "tak diye, tiklayinca acilsin, arka plani kilitlemesin" istedi.
+     Artik TIKLAMA ile geciklmesizce acilir, arka plan tiklanabilir kalir -
+     kapanmasi icin disina tiklamak ya da Esc yeterli. */
   const ozetModal = document.getElementById("ozet-modal");
 
   if (ozetModal) {
@@ -402,60 +400,17 @@
     const ozetOzet = ozetModal.querySelector(".ozet-modal-ozet");
     const ozetGereksinimler = ozetModal.querySelector(".ozet-modal-gereksinimler");
     const ozetDil = ozetModal.querySelector(".ozet-modal-dil");
+    const ozetSpinner = ozetModal.querySelector(".ozet-modal-spinner");
     const ozetKapatBtn = ozetModal.querySelector(".ozet-modal-kapat");
 
-    /* ACILIS 900ms: imlecin yaninda bir halka DOLAR, dolmadan pencere acilmaz.
-       Kasitsiz acilmayi engelleyen sey bu: liste uzerinde gezinen fare bir
-       kartta ~1 sn durmadikca ozet gelmez. Onbellekte hazir olsa bile beklenir -
-       "tak diye acilma" sikayeti tam olarak buydu. */
-    const ACILIS_GECIKME = 900;
-    const KAPANIS_GECIKME = 200;
-    let acilisZamanlayici = null;
-    let kapanisZamanlayici = null;
     let aktifFingerprint = null;
     let istekSirasi = 0;                    // gec gelen eski cevap yeniyi ezmesin
     const onbellek = new Map();              // fingerprint -> /api/ozet govdesi
 
-    /* Imlecin yaninda dolan halka. Tek dugum: her kart icin ayri eleman
-       tutmak yerine body'ye bir kez eklenip fareyle tasiniyor. */
-    let halka = null;
-
-    function halkaGoster(x, y) {
-      if (!halka) {
-        halka = document.createElement("div");
-        halka.className = "ozet-halka";
-        halka.setAttribute("aria-hidden", "true");
-        document.body.appendChild(halka);
-      }
-      halka.style.setProperty("--sure", ACILIS_GECIKME + "ms");
-      halkaTasi(x, y);
-      // Animasyon her seferinde bastan baslasin: sinifi kaldirip reflow tetikle.
-      halka.classList.remove("doluyor");
-      void halka.offsetWidth;
-      halka.classList.add("doluyor");
-    }
-
-    function halkaTasi(x, y) {
-      if (halka) { halka.style.left = x + "px"; halka.style.top = y + "px"; }
-    }
-
-    function halkaYukleniyor() {
-      if (halka) { halka.classList.remove("doluyor"); halka.classList.add("bekliyor"); }
-    }
-
-    function halkaGizle() {
-      if (halka) halka.classList.remove("doluyor", "bekliyor");
-    }
-
-    function kapanisIptal() {
-      if (kapanisZamanlayici) { clearTimeout(kapanisZamanlayici); kapanisZamanlayici = null; }
-    }
-
     function modalKapat() {
-      kapanisIptal();
-      if (acilisZamanlayici) { clearTimeout(acilisZamanlayici); acilisZamanlayici = null; }
       ozetModal.hidden = true;
       aktifFingerprint = null;
+      istekSirasi += 1;                     // yoldaki eski istek gelince atilsin
     }
 
     function dolgula(data) {
@@ -477,15 +432,8 @@
         : (data.translated ? (data.lang + " → en çevrildi") : "");
     }
 
-    /* Icerik HAZIR OLMADAN pencere acilmaz: kartin kosesinde yuvarlak doner,
-       yanit gelince pencere dolu halde acilir. Onbellekten gelirse yuvarlak
-       neredeyse hic gorunmez (~10 ms), yapay zeka uretirse ~1.5 sn doner. */
-    async function icerikGetir(fp, sira) {
+    async function ozetGetir(fp) {
       if (onbellek.has(fp)) return onbellek.get(fp);
-
-      // Halka doldu ama ozet henuz yok (yapay zeka ~1.5 sn suruyor): halka
-      // BELIRSIZ donmeye gecer, ekranda olu bekleme olmaz.
-      halkaYukleniyor();
       try {
         const res = await fetch("/api/ozet?fingerprint=" + encodeURIComponent(fp),
                                 { cache: "no-store" });
@@ -495,69 +443,46 @@
         return data;
       } catch (err) {
         return null;
-      } finally {
-        halkaGizle();
       }
     }
 
-    async function modalAc(fp) {
-      kapanisIptal();
+    async function tikla(buton) {
+      const fp = buton.dataset.fingerprint;
+      if (aktifFingerprint === fp && !ozetModal.hidden) { modalKapat(); return; }  // ayni dugme: kapat
+
       istekSirasi += 1;
       const sira = istekSirasi;
-
-      const data = await icerikGetir(fp, sira);
-      // Beklerken kullanici baska karta gecti ya da listeden ayrildi: bu yaniti at.
-      if (sira !== istekSirasi) return;
-      if (!data) return;                       // ozet alinamadi - pencere hic acilmaz
-
       aktifFingerprint = fp;
-      dolgula(data);
+
+      // TAK DIYE ac: veri onbellekte olmasa bile pencere HEMEN gorunur, icinde
+      // donen halka doner - "tiklayinca beklemeden gelsin" tam bu. Her zaman
+      // EKRANIN ORTASINDA acilir (CSS) - butona ankrajli konum alt siradaki
+      // kartlarda ekran disina tasiyordu.
+      const varCache = onbellek.has(fp);
+      ozetBaslik.textContent = "";
+      ozetOzet.textContent = "";
+      ozetGereksinimler.innerHTML = "";
+      ozetDil.textContent = "";
+      if (ozetSpinner) ozetSpinner.hidden = varCache;
       ozetModal.hidden = false;
+
+      const data = await ozetGetir(fp);
+      if (sira !== istekSirasi) return;        // beklerken baska dugmeye tiklandi/kapatildi
+      if (ozetSpinner) ozetSpinner.hidden = true;
+      if (!data) { modalKapat(); return; }     // ozet alinamadi
+      dolgula(data);
     }
 
-    document.querySelectorAll(".item[data-fingerprint]").forEach(function (kart) {
-      const fp = kart.dataset.fingerprint;
-
-      kart.addEventListener("pointerenter", function (e) {
-        kapanisIptal();
-        if (aktifFingerprint === fp) return;    // zaten bu kart acik
-        // Dokunmatikte halka anlamsiz (imlec yok) ve :hover takili kalir.
-        if (e.pointerType === "touch") return;
-
-        if (acilisZamanlayici) clearTimeout(acilisZamanlayici);
-        halkaGoster(e.clientX, e.clientY);
-        acilisZamanlayici = setTimeout(function () {
-          acilisZamanlayici = null;
-          modalAc(fp);
-        }, ACILIS_GECIKME);
-      });
-
-      // Halka fareyi takip etsin; kart icinde gezerken yerinde kalmasin.
-      kart.addEventListener("pointermove", function (e) {
-        if (acilisZamanlayici) halkaTasi(e.clientX, e.clientY);
-      });
-
-      kart.addEventListener("pointerleave", function () {
-        // Halka dolmadan cikildi: ozet ACILMAZ - kasitsiz acilmanin onlendigi yer.
-        if (acilisZamanlayici) { clearTimeout(acilisZamanlayici); acilisZamanlayici = null; }
-        halkaGizle();
-        // Yanit yoldaysa gelince atilsin: sirayi ilerlet.
-        if (ozetModal.hidden) istekSirasi += 1;
-        kapanisIptal();
-        kapanisZamanlayici = setTimeout(modalKapat, KAPANIS_GECIKME);
+    document.querySelectorAll(".ozet-btn").forEach(function (buton) {
+      buton.addEventListener("click", function (e) {
+        e.stopPropagation();                   // document'teki disina-tiklama kapatmasin
+        tikla(buton);
       });
     });
 
-    // Modal'in uzerindeyken (icerige dogru giderken) kapanma tetiklenmesin.
-    ozetModal.addEventListener("pointerenter", kapanisIptal);
-    ozetModal.addEventListener("pointerleave", function () {
-      kapanisZamanlayici = setTimeout(modalKapat, KAPANIS_GECIKME);
-    });
-
-    // Dokunmatikte pointerleave hic gelmeyebilir - bu ucu kapanmanin tek garantisi.
     if (ozetKapatBtn) ozetKapatBtn.addEventListener("click", modalKapat);
-    ozetModal.addEventListener("click", function (e) {
-      if (e.target === ozetModal) modalKapat();   // backdrop'a tiklama
+    document.addEventListener("click", function (e) {
+      if (!ozetModal.hidden && !ozetModal.contains(e.target)) modalKapat();
     });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !ozetModal.hidden) modalKapat();

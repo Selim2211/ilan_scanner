@@ -130,7 +130,6 @@ def test_yetkisiz_dugmeler_sablonda_hic_gorunmez(admin):
     dar.post("/giris", data={"username": "dar", "password": "parola123"})
     sayfa = dar.get("/").text
     assert 'href="/ayarlar"' not in sayfa
-    assert 'action="/isaret"' not in sayfa
 
 
 def test_son_yonetici_yetkisi_kaldirilamaz(admin):

@@ -13,6 +13,7 @@
   {%- elif name == "ext" -%}<path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>
   {%- elif name == "chev" -%}<path d="m6 9 6 6 6-6"/>
   {%- elif name == "alert" -%}<circle cx="12" cy="12" r="9"/><path d="M12 8v4.5M12 16h.01"/>
+  {%- elif name == "info" -%}<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>
   {%- elif name == "grid" -%}<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>
   {%- elif name == "rows" -%}<rect x="3" y="4" width="18" height="5" rx="1.5"/><rect x="3" y="15" width="18" height="5" rx="1.5"/>
   {%- endif -%}
@@ -271,9 +272,9 @@
     {% set gun = posted | age_days %}
     {% set sorunlu = (row["quality_flag"] or "") == "problem" %}
     {% set hits = as_list(row["keywords_hit"]) %}
-    {# `data-fingerprint`: app.js karta gelince bunu okuyup /api/ozet'ten
-       ozet + zorunlu gereksinimleri ceker, merkezdeki paylasilan modal'i
-       (#ozet-modal) doldurur - kartin kendisinde ayri bir kutu tutulmaz. #}
+    {# `data-fingerprint`: kartin "Özet" dugmesine (.ozet-btn, asagida) tiklaninca
+       app.js bunu okuyup /api/ozet'ten ozet + zorunlu gereksinimleri ceker,
+       paylasilan popover'i (#ozet-modal) doldurur. #}
     <article class="card item {{ mode }} {% if row['is_active'] == 0 %}closed{% endif %} {% if sorunlu %}flagged{% endif %}"
              data-fingerprint="{{ row['fingerprint'] }}"
              style="animation-delay:{{ loop.index0 * 22 }}ms">
@@ -395,17 +396,13 @@
           </button>
         </form>
         {% endif %}
-        {% if can('flag_projects') %}
-        <form method="post" action="/isaret">
-          <input type="hidden" name="fingerprint" value="{{ row['fingerprint'] }}">
-          <input type="hidden" name="reason" value="elle işaretlendi">
-          <input type="hidden" name="back" value="{{ back }}">
-          <button type="submit" class="iconbtn {% if sorunlu %}on{% endif %}"
-                  title="{% if sorunlu %}Sorunlu işaretini kaldır{% else %}İlan açılmıyor / bölge kısıtlı — sorunlu işaretle{% endif %}">
-            {{ svg("alert", 15) }}<span>{% if sorunlu %}Sorunlu{% else %}İşaretle{% endif %}</span>
-          </button>
-        </form>
-        {% endif %}
+        {# Yapay zeka ozeti eskiden karta gelince (hover) aciliyordu; artik tikla-ac.
+           İşaretle bu slotun yerini birakti - sorunlu isaretleme kalkmadi, sadece
+           listeden erisim yolu kalkti (bkz. konusma). #}
+        <button type="button" class="iconbtn ozet-btn" data-fingerprint="{{ row['fingerprint'] }}"
+                title="Yapay zeka özeti ve olmazsa olmaz koşullar">
+          {{ svg("info", 15) }}<span>Özet</span>
+        </button>
         {% if row["is_active"] == 1 and can('report_closed') %}
         <form method="post" action="/kapandi"
               data-confirm="Bu ilan kapandı olarak işaretlenecek. Kapananlar listesinde kalır; Ayarlar > Bakım'dan topluca silebilirsiniz."
@@ -455,16 +452,17 @@
   </div>
 {% endif %}
 
-{# Tek paylasilan ozet modal'i: hangi karta gelinirse onun verisiyle doldurulur
-   (app.js). 20+ kart icin 20+ gizli kutu tutmak yerine tek DOM, /api/ozet'ten
-   gelen veriye gore icerigi degisir. #}
-<div id="ozet-modal" class="ozet-modal-backdrop" hidden aria-hidden="true">
-  <div class="ozet-modal" role="dialog" aria-modal="true" aria-labelledby="ozet-modal-baslik">
-    <button type="button" class="ozet-modal-kapat" aria-label="Kapat">×</button>
-    <h3 id="ozet-modal-baslik" class="ozet-modal-baslik"></h3>
-    <p class="ozet-modal-ozet"></p>
-    <div class="ozet-modal-gereksinimler"></div>
-    <span class="ozet-modal-dil"></span>
-  </div>
+{# Tek paylasilan ozet penceresi: hangi karttaki "Özet" dugmesine tiklanirsa
+   onun verisiyle doldurulur (app.js). 20+ kart icin 20+ gizli kutu tutmak
+   yerine tek DOM, /api/ozet'ten gelen veriye gore icerigi degisir.
+   Arka planı karartmıyor/kilitlemiyor - sayfanin geri kalani tiklanabilir
+   kalir; her zaman ekranin ortasinda acilir, disina tiklaninca kapanir. #}
+<div id="ozet-modal" class="ozet-modal" role="dialog" aria-labelledby="ozet-modal-baslik" hidden>
+  <button type="button" class="ozet-modal-kapat" aria-label="Kapat">×</button>
+  <h3 id="ozet-modal-baslik" class="ozet-modal-baslik"></h3>
+  <div class="ozet-modal-spinner" hidden></div>
+  <p class="ozet-modal-ozet"></p>
+  <div class="ozet-modal-gereksinimler"></div>
+  <span class="ozet-modal-dil"></span>
 </div>
 {% endblock %}
