@@ -545,6 +545,11 @@ select { appearance:none; padding-right:34px;
 .iconbtn:hover { background:var(--surface-2); color:var(--ink); border-color:var(--line-2); }
 .iconbtn.on { color:var(--signal); border-color:var(--signal); background:var(--signal-soft); }
 .iconbtn.danger:hover { color:var(--coral); border-color:var(--coral); background:var(--coral-soft); }
+/* Özet: her zaman (hover beklemeden) menekşe - yapay zeka ozetiyle ayni renk
+   dili (bkz. .ozet-modal-gereksinimler[data-kaynak="ai"]), diger ikonlar
+   arasinda goze hemen carpsin diye. */
+.iconbtn.ozet-btn { color:var(--violet); border-color:var(--violet); background:var(--violet-soft); }
+.iconbtn.ozet-btn:hover { background:var(--violet); color:#fff; border-color:var(--violet); }
 
 /* ---------- 8. sayfalama ---------- */
 .pager { display:flex; gap:6px; justify-content:center; align-items:center; flex-wrap:wrap; margin:26px 0 4px; }
