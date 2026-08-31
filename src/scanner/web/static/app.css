@@ -505,7 +505,13 @@ select { appearance:none; padding-right:34px;
 .meta { display:flex; gap:7px 15px; flex-wrap:wrap; margin-top:7px; color:var(--ink-2); font-size:13px; }
 .meta span { display:inline-flex; align-items:center; gap:6px; min-width:0; }
 .meta svg { color:var(--ink-3); }
-.meta .src { font-family:var(--font-mono); font-size:11.5px; letter-spacing:.05em; color:var(--ink-3); }
+/* `.src` DEGIL: ayarlar sayfasindaki kaynak karti da ayni adi tasiyor
+   (asagida, "kaynak yonetimi" bolumu) - o padding/border/flex tanimlari bu
+   kucuk metin etiketine de sizip izgara gorunumunde bos gri kutu gibi
+   goruniyordu. Kendi ismi bu carpismayi tamamen bitiriyor. */
+.meta .ilan-kaynagi {
+  font-family:var(--font-mono); font-size:11.5px; letter-spacing:.05em; color:var(--ink-3);
+}
 .age { display:inline-flex; align-items:center; gap:6px; }
 .age::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--ink-3); }
 .age.fresh::before  { background:var(--signal); box-shadow:0 0 0 3px var(--signal-soft); }

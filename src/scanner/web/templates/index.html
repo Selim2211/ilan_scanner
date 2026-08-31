@@ -326,7 +326,7 @@
                 title="ilan tarihi: {{ (row['posted_at'] or row['first_seen_at'] or '')[:10] }} · son görülme: {{ row['last_seen_at'] | since }}">
             {% if row["posted_at"] %}{{ row["posted_at"] | since }}{% else %}{{ row["first_seen_at"] | since }} sisteme düştü{% endif %}
           </span>
-          <span class="src">{{ row["source"] }}</span>
+          <span class="ilan-kaynagi">{{ row["source"] }}</span>
           {# ayni ilan baska panolarda da yayinda: dedupe bunu topluyordu ama gosterilmiyordu #}
           {% if as_list(row["also_seen_on"]) %}
           <span class="alsoseen" title="Aynı ilan bu kaynaklarda da bulundu">
