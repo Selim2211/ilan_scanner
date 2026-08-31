@@ -104,6 +104,15 @@ def settings_for(row: sqlite3.Row) -> tuple[dict, dict]:
     return config, result
 
 
+def _cok_secim(form, alan: str) -> str:
+    """Cok secimli form alanini virgulle birlesik metne cevirir."""
+    if hasattr(form, "getlist"):
+        secili = [str(v).strip() for v in form.getlist(alan) if str(v).strip()]
+    else:
+        secili = [(form.get(alan) or "").strip()]
+    return ",".join(dict.fromkeys(v for v in secili if v))
+
+
 def capture_current(config: dict | None = None, keywords: dict | None = None) -> dict:
     """Su anki ayarlardan profil govdesi uretir ('mevcut ayarlardan profil olustur')."""
     config = config or load_config()
@@ -327,7 +336,9 @@ def payload_from_form(form: Any, parse_lines, parse_weight_lines) -> tuple[dict,
         "budget": 1 if form.get("view_budget") == "1" else 0,
         "days": int(form.get("view_days") or 0),
         "sort": (form.get("view_sort") or "score").strip(),
-        "country": (form.get("view_country") or "").strip(),
+        # Ulke kutusu cok secimli: birden fazla kod virgulle tek metinde saklanir,
+        # okurken storage.country_values() ayni listeye geri ceviriyor.
+        "country": _cok_secim(form, "view_country"),
         "exclude": (form.get("view_exclude") or "").strip(),
         "min_score": payload["min_score"],
     }

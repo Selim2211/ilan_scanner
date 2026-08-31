@@ -18,17 +18,28 @@ _TR_MAP = str.maketrans({
     "ü": "u", "Ü": "u", "ö": "o", "Ö": "o", "ç": "c", "Ç": "c",
 })
 
+#: Almanca/Hollandaca/Fransizca karsiliklar da burada: jooble-de ve careerjet
+#: (de_DE, nl_NL, fr_FR) o dillerde ilan donduruyor. Eksikken Almanca bir
+#: "Fernarbeit" ilani onsite sayilip remote_boost'u (12 puan, en buyuk etken)
+#: alamiyor ve min_score esigini gecemiyordu.
 REMOTE_HINTS = ("remote", "uzaktan", "home office", "home-office", "homeoffice",
                 "work from home", "evden", "telecommute", "anywhere", "100% remote",
-                "fully remote", "remote-first")
+                "fully remote", "remote-first",
+                "fernarbeit", "mobiles arbeiten", "ortsunabhangig", "ortsunabhängig",
+                "remote arbeit", "vollstandig remote", "thuiswerken", "op afstand",
+                "teletravail", "télétravail", "a distance", "à distance")
 HYBRID_HINTS = ("hybrid", "hibrit", "partially remote", "kismen uzaktan", "2 days onsite",
-                "flexible office", "remote/onsite", "onsite/remote")
+                "flexible office", "remote/onsite", "onsite/remote",
+                "hybrides arbeiten", "teilweise remote", "teilweise vor ort",
+                "hybride werken", "hybride")
 ONSITE_HINTS = ("onsite", "on-site", "is yerinde", "ofisten", "vor ort", "in office",
                 "office-based", "relocation required")
 
 CONTRACT_HINTS = ("freelance", "freelancer", "contract", "contractor", "c2c", "corp to corp",
                   "b2b", "proje bazli", "sozlesmeli", "interim", "consultant", "danisman",
-                  "temporary", "gig", "self-employed", "selbstandig")
+                  "temporary", "gig", "self-employed", "selbstandig",
+                  "freiberuflich", "freiberufler", "werkvertrag", "auf projektbasis",
+                  "projektarbeit", "zelfstandig", "opdracht", "independant", "indépendant")
 PERMANENT_HINTS = ("permanent", "full-time employee", "festanstellung", "kadrolu",
                    "tam zamanli calisan", "unbefristet")
 

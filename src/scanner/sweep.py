@@ -17,8 +17,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from .config import load_config, resolve_path
-from .pipeline import (_inspect_link, active_profile_id, api_verify_settings, build_client,
-                       verifier_for, verify_with_source)
+from .pipeline import (_inspect_link, active_profile_id, api_miss_close_streak,
+                       api_verify_settings, build_client, verifier_for, verify_with_source)
 from .sources import HttpClient
 from .storage import Storage
 
@@ -28,6 +28,11 @@ log = logging.getLogger(__name__)
 SWEEP_MAX = 500
 SWEEP_WORKERS = 8
 SWEEP_TIMEOUT = 15.0
+
+#: API dogrulamasi kac ilanlik parcalar halinde islenir. Sayaclar ve iptal
+#: kontrolu parca sonlarinda calisir; kucuk tutmak ilerleme cubugunu akici,
+#: Durdur dugmesini tepkili yapar (ilan basina ~1.8 sn -> parca ~35 sn).
+API_PARCA = 20
 
 
 def _now() -> datetime:
@@ -112,15 +117,22 @@ class LinkSweeper:
         with self._lock:
             return self.state.snapshot()
 
-    def start(self, filters: dict, by: str = "", config: dict | None = None) -> bool:
-        """Turu baslatir. Zaten calisiyorsa False doner."""
+    def start(self, filters: dict, by: str = "", config: dict | None = None,
+              full: bool = False) -> bool:
+        """Turu baslatir. Zaten calisiyorsa False doner.
+
+        `full=True`: panel dugmesi "Tumunu kontrol et" - `sweep_max` sinirini
+        yok sayar, o an aktif olan HER ilani kontrol eder (bkz. _run). Zamanlanmis
+        turlar ve CLI `sweep` komutu full=False ile eskisi gibi `sweep_max`'e
+        uyar - onlar sik sik calisir, tek turda hepsine bakmaya gerek yok.
+        """
         with self._lock:
             if self.state.phase == "running":
                 return False
             self.state = SweepState(phase="running", started_at=_now(), by=by)
         self._cancel.clear()
         self._thread = threading.Thread(target=self._run, name="temizlik", daemon=True,
-                                        args=(dict(filters), config or self._config))
+                                        args=(dict(filters), config or self._config, full))
         self._thread.start()
         return True
 
@@ -142,13 +154,21 @@ class LinkSweeper:
         self.join(timeout=timeout)
 
     # --- ic islevler ---------------------------------------------------
-    def _run(self, filters: dict, config: dict | None) -> None:
+    def _run(self, filters: dict, config: dict | None, full: bool = False) -> None:
         config = config or load_config()
         limit, workers, _ = sweep_settings(config)
         store = Storage(self.db_path)
         client = sweep_client(config)
         try:
-            rows = store.query(**filters, limit=limit, offset=0)
+            if full:
+                # "Tumunu kontrol et": o an aktif olan ne kadar ilan varsa hepsi -
+                # sweep_max burada bir siralama detayi degil, sonucu eksik birakan
+                # bir sinir olurdu.
+                limit = max(limit, store.count(**filters))
+            # `stale` sirasi: en uzun suredir kontrol edilmemis ilan basa gelir.
+            # Tur basina `limit` ilan bakildigi icin varsayilan puan sirasiyla
+            # her tur ayni ilanlar taranir, kuyruktakilere hic sira gelmezdi.
+            rows = store.query(**filters, limit=limit, offset=0, order="stale")
             with self._lock:
                 self.state.total = len(rows)
             log.info("temizlik turu: %s ilan kontrol edilecek", len(rows))
@@ -208,29 +228,66 @@ class LinkSweeper:
         """
         if not rows or self._cancel.is_set():
             return []
-        limit, threshold = api_verify_settings(config)
+        # manual=True: elle baslatilan tur cok daha fazla ilana bakar (kullanici
+        # bilerek basti, ilerlemeyi goruyor ve Durdur'a basabiliyor).
+        limit, threshold = api_verify_settings(config, manual=True)
+        kayip_esigi = api_miss_close_streak(config)
+        freshness = config.get("freshness") or {}
+        suspect_after = int(freshness.get("suspect_after_missing_scans", 2))
+        close_immediately = bool(freshness.get("close_suspects_immediately", False))
         client = build_client(config)                 # hiz sinirli normal istemci
         kapananlar: list[dict] = []
         try:
             for source in sorted({r["source"] for r in rows}):
+                kaynak_rows = [r for r in rows if r["source"] == source]
+                if close_immediately:
+                    # "KONTROL EDILIYOR" rozetindeki (missing_streak >= suspect_after)
+                    # ilanlar API'ye hic sorulmadan kapatilir - bkz. pipeline.py
+                    # _resolve_missing'deki ayni bayrak, gerekce orada.
+                    hazir = [r for r in kaynak_rows
+                            if int(r["missing_streak"] or 0) >= suspect_after]
+                    hazir_fp = {r["fingerprint"] for r in hazir}
+                    for row in hazir:
+                        store.close_project(row["fingerprint"])
+                        kapananlar.append({
+                            "kind": "closed", "fingerprint": row["fingerprint"],
+                            "title": row["title"], "detail": "şüpheli, doğrudan kapatıldı",
+                            "url": row["url"], "source": row["source"],
+                            "score": row["score"] or 0, "work_mode": row["work_mode"] or ""})
+                    if hazir:
+                        with self._lock:
+                            self.state.closed += len(hazir)
+                    kaynak_rows = [r for r in kaynak_rows if r["fingerprint"] not in hazir_fp]
+
                 checker = verifier_for(source, config, client)
                 if checker is None:
                     continue
-                hedef = [r for r in rows if r["source"] == source][:limit]
-                kapatilan, yayinda, bilinmiyor = verify_with_source(
-                    store, checker, hedef, threshold)
-                with self._lock:
-                    self.state.api_checked += len(hedef)
-                    self.state.closed += len(kapatilan)
-                    self.state.alive += yayinda
-                    # API de cevap veremediyse ilan yine "dogrulanamadi" sayilir
-                    self.state.unverified -= (len(hedef) - bilinmiyor)
-                for row in kapatilan:
-                    kapananlar.append({
-                        "kind": "closed", "fingerprint": row["fingerprint"],
-                        "title": row["title"], "detail": f"{source} API'sinde artık yok",
-                        "url": row["url"], "source": row["source"],
-                        "score": row["score"] or 0, "work_mode": row["work_mode"] or ""})
+                hedef = kaynak_rows[:limit]
+                # PARCALI islenir. Tek seferde 150 ilan sorulunca ilan basina
+                # ~1.8 sn'den ~4.5 dakika boyunca ne ilerleme cubugu kipirdiyor
+                # ne de Durdur dugmesi ise yariyordu - kullanici turun takildigini
+                # saniyordu. Parca sonlarinda hem sayaclar guncelleniyor hem
+                # iptal bayragina bakiliyor.
+                for bas in range(0, len(hedef), API_PARCA):
+                    if self._cancel.is_set():
+                        break
+                    parca = hedef[bas:bas + API_PARCA]
+                    kapatilan, yayinda, bilinmiyor = verify_with_source(
+                        store, checker, parca, threshold, kayip_esigi=kayip_esigi)
+                    with self._lock:
+                        self.state.api_checked += len(parca)
+                        self.state.closed += len(kapatilan)
+                        self.state.alive += yayinda
+                        # API de cevap veremediyse ilan yine "dogrulanamadi" sayilir
+                        self.state.unverified -= (len(parca) - bilinmiyor)
+                    for row in kapatilan:
+                        kapananlar.append({
+                            "kind": "closed", "fingerprint": row["fingerprint"],
+                            "title": row["title"], "detail": f"{source} API'sinde artık yok",
+                            "url": row["url"], "source": row["source"],
+                            "score": row["score"] or 0, "work_mode": row["work_mode"] or ""})
+                if self._cancel.is_set():
+                    break
         finally:
             client.close()
         return kapananlar

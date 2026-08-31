@@ -146,7 +146,101 @@ def test_fingerprint_gurultu_kelimelerine_dayanikli():
            fingerprint(project(title="SAP ABAP Developer"))
 
 
+# --- ulke cozumlemesi ------------------------------------------------
+def test_ulke_kodu_cozumleme():
+    """Kaynaklarin ulke kolonuna yazdigi her sey tek bir ISO2 koduna inmeli."""
+    from scanner.countries import resolve_country
+
+    assert resolve_country("Germany") == "DE"
+    assert resolve_country("Deutschland") == "DE"       # careerjet yerel dilde donuyor
+    assert resolve_country("München") == "DE"           # freelancermap sehir yaziyor
+    assert resolve_country("Greater London") == "GB"
+    assert resolve_country("Turkey") == "TR"
+    assert resolve_country("TX", "Austin, TX") == "US"  # jooble eyalet kisaltmasi
+    assert resolve_country("ON", "Toronto, ON") == "CA"
+    assert resolve_country("", "New York, NY") == "US"  # ulke bos, location cozuyor
+
+
+def test_ulke_olmayan_degerler_kod_uretmez():
+    from scanner.countries import resolve_country
+
+    assert resolve_country("Remote") == ""
+    assert resolve_country("Anywhere", "Europe") == ""
+    assert resolve_country("Casablanca") == ""          # tanimadigimiz sehir zorlanmaz
+
+
 # --- storage ---------------------------------------------------------
+def test_ulke_filtresi_tam_eslesir(tmp_path):
+    """Eski LIKE filtresi 'CA' deyince Casablanca'yi getirip Deutschland'i kaciriyordu."""
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    kayitlar = [
+        ("Berlin ABAP", "Germany", "Berlin, Germany"),
+        ("Köln ABAP", "Deutschland", "Köln"),
+        ("Toronto ABAP", "", "Toronto, ON"),
+        ("Casablanca ABAP", "Casablanca", "Casablanca"),
+        ("Remote ABAP", "Remote", "Remote"),
+    ]
+    items = []
+    for baslik, ulke, konum in kayitlar:
+        p = project(title=baslik, company=baslik, country=ulke, location=konum)
+        p.fingerprint = fingerprint(p)
+        items.append(p)
+    store.upsert(items)
+
+    assert store.count(country=["DE"]) == 2            # Germany + Deutschland birlikte
+    assert store.count(country=["CA"]) == 1            # Kanada; Casablanca DEGIL
+    assert store.count(country=["DE", "CA"]) == 3
+    assert store.count(country="__none__") == 2        # Casablanca + Remote
+    assert store.count(country="Germany") == 1         # eski serbest metin hala calisir
+    store.close()
+
+
+def test_ulke_facetleri(tmp_path):
+    """Kutudaki liste: kanonik ad + sayi, cozulemeyenler sonda tek kovada."""
+    from scanner.countries import NO_COUNTRY
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    items = []
+    for baslik, ulke in [("A", "Germany"), ("B", "Deutschland"), ("C", "Remote")]:
+        p = project(title=f"SAP {baslik}", company=baslik, country=ulke)
+        p.fingerprint = fingerprint(p)
+        items.append(p)
+    store.upsert(items)
+
+    facets = store.country_facets()
+    assert facets[0] == {"code": "DE", "name": "Almanya", "count": 2}
+    assert facets[-1]["code"] == NO_COUNTRY and facets[-1]["count"] == 1
+    store.close()
+
+
+def test_ulke_kodu_geri_doldurma(tmp_path):
+    """Kolon sonradan eklendiginde eski satirlar da kodlanmali."""
+    import sqlite3
+
+    from scanner.storage import Storage
+
+    yol = tmp_path / "t.db"
+    store = Storage(yol)
+    p = project(title="Eski SAP ABAP", country="Deutschland", location="Köln")
+    p.fingerprint = fingerprint(p)
+    store.upsert([p])
+    store.close()
+
+    # kolonu elle sifirla: migration oncesi veritabanini taklit eder
+    conn = sqlite3.connect(yol)
+    conn.execute("UPDATE projects SET country_code = NULL")
+    conn.commit()
+    conn.close()
+
+    store = Storage(yol)
+    assert store.count(country=["DE"]) == 1
+    store.close()
+
+
+
 def test_sayfalama_ve_sayim(tmp_path):
     from scanner.storage import Storage
 
@@ -259,6 +353,46 @@ def test_kapanan_ilan_geri_gelirse_acilir(tmp_path):
     assert store.count() == 1
     assert store.count(closed_only=True) == 0
     assert store.stats()["suspect"] == 0
+    store.close()
+
+
+def test_supheli_ilan_bayrak_acikken_dogrudan_kapatilir(tmp_path):
+    """close_suspects_immediately: link kontrolu hicbir zaman calismayan kaynakta
+    (Jooble) supheli olan ilan API'ye sorulmadan dogrudan kapatilir."""
+    from scanner.pipeline import _resolve_missing
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    p = project(title="SAP ABAP Projesi")
+    p.source = "jooble"
+    p.fingerprint = fingerprint(p)
+    store.upsert([p])
+
+    closed = _resolve_missing(store, client=None, kept=[], healthy_sources={"jooble"},
+                              suspect_after=1, close_unverifiable_after=6,
+                              skip_sources={"jooble"}, check_limit=10,
+                              close_suspects_immediately=True)
+    assert len(closed) == 1
+    assert store.count() == 0
+    store.close()
+
+
+def test_supheli_ilan_bayrak_kapaliyken_hemen_kapanmaz(tmp_path):
+    """Varsayilan (bayrak kapali) davranis korunur: tek turda kapanmaz."""
+    from scanner.pipeline import _resolve_missing
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    p = project(title="SAP ABAP Projesi")
+    p.source = "jooble"
+    p.fingerprint = fingerprint(p)
+    store.upsert([p])
+
+    closed = _resolve_missing(store, client=None, kept=[], healthy_sources={"jooble"},
+                              suspect_after=1, close_unverifiable_after=6,
+                              skip_sources={"jooble"}, check_limit=10)
+    assert closed == []
+    assert store.count() == 1
     store.close()
 
 
@@ -520,4 +654,68 @@ def test_artik_aktif_degil_bildirimi_ilani_kapatir(tmp_path):
     # ikinci kez bildirilirse ikinci bildirim uretilmez
     assert store.report_closed(p.fingerprint) is None
     assert store.unread_count() == 1
+    store.close()
+
+def test_karo_sayimlari_listeyle_ayni_kumeyi_sayar(tmp_path):
+    """Karodaki sayi, tiklaninca acilan listeyle BIREBIR ayni olmali.
+
+    Regresyon: `stats()` min skor esigini yok sayiyordu; panel "489 uzaktan"
+    yazip tiklayinca 484 ilan gosteriyordu. Kullanici haklı olarak sayilara
+    guvenmiyordu.
+    """
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    yuksek = project(title="Yuksek SAP ABAP", work_mode=REMOTE)
+    dusuk = project(title="Dusuk SAP ABAP", company="Y", work_mode=REMOTE)
+    for p, skor in ((yuksek, 40), (dusuk, 5)):
+        p.fingerprint = fingerprint(p)
+        p.score = skor
+    store.upsert([yuksek, dusuk])
+
+    # Esik uygulanmadan: ikisi de sayilir (CLI/tepsi bu davranisi kullaniyor)
+    assert store.stats()["remote"] == 2
+
+    # Esik uygulaninca karo ile liste ayni sayiyi vermeli
+    karo = store.stats(min_score=10, include_supply=False)["remote"]
+    liste = store.count(min_score=10, work_mode="remote")
+    assert karo == liste == 1
+    store.close()
+
+
+def test_karo_aktif_sayisi_ham_kalir(tmp_path):
+    """"Tumunu kontrol et" skor esigine bakmadan tariyor; sayi onunla ortusmeli."""
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    for baslik, skor in (("A SAP ABAP", 40), ("B SAP ABAP", 1)):
+        p = project(title=baslik, company=baslik)
+        p.fingerprint = fingerprint(p)
+        p.score = skor
+        store.upsert([p])
+
+    assert store.stats(min_score=10)["active"] == 2      # esikten etkilenmez
+    store.close()
+
+
+def test_gun_filtresi_secilen_tarih_alanina_bakar(tmp_path):
+    """"son 24 saatte SISTEME DUSEN" ile "YAYINLANAN" farkli kumeler.
+
+    24 saat karosu birincisini sayiyor; `days` filtresi `date_field=seen`
+    verildiginde first_seen_at'e bakmazsa karo ile liste tutmuyordu.
+    """
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    eski_yayin = project(title="Eski yayin SAP ABAP",
+                         posted_at=datetime.now(timezone.utc) - timedelta(days=60))
+    eski_yayin.fingerprint = fingerprint(eski_yayin)
+    store.upsert([eski_yayin])          # bugun sisteme dustu, 60 gun once yayinlandi
+
+    # yayin tarihine gore: 1 gunluk pencerede YOK
+    assert store.count(max_age_days=1, date_field="posted") == 0
+    # sisteme dusme tarihine gore: VAR
+    assert store.count(max_age_days=1, date_field="seen") == 1
+    # karo da bunu saymali
+    assert store.stats()["new_24h"] == 1
     store.close()

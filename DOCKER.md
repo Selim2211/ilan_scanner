@@ -210,7 +210,7 @@ Script sırayla: `.env`i `.env.paket` olarak kopyalar → imajı derler → kopy
 imajın içinden anahtarları gerçekten okuyabildiğini doğrular → `docker save` ile tar alır →
 `packaging/docker/` altındaki script'leri ve `ayarlar.conf`u ekleyip zipler.
 
-Sonuç: `dist\sap-radar-docker-1.4.0.zip` (~55 MB) — gönderilecek tek dosya.
+Sonuç: `dist\sap-radar-docker-1.6.0.zip` (~55 MB) — gönderilecek tek dosya.
 
 | Bayrak | Etki |
 |---|---|
@@ -221,7 +221,7 @@ Sonuç: `dist\sap-radar-docker-1.4.0.zip` (~55 MB) — gönderilecek tek dosya.
 ### Alıcının yaptığı
 
 ```bash
-unzip sap-radar-docker-1.4.0.zip -d sap-radar
+unzip sap-radar-docker-1.6.0.zip -d sap-radar
 cd sap-radar && chmod +x *.sh && ./Radar_Baslat.sh
 ```
 
@@ -251,7 +251,7 @@ Yanındaki diğer script'ler: `Radar_Durdur.sh`, `Radar_Gunluk.sh` (canlı log),
 `setdefault` ile okunduğu için gerçek ortam değişkeni (`-e JOOBLE_API_KEY=...`) hepsinin
 önündedir.
 
-> **Bedeli:** imajı alan herkes `docker run --rm sap-proje-radari:1.4.0 cat /app/.env` ile
+> **Bedeli:** imajı alan herkes `docker run --rm sap-proje-radari:1.6.0 cat /app/.env` ile
 > anahtarları okur ve bu geri alınamaz — tar kopyalandıysa kopyada da vardır. Anahtar
 > sızarsa Jooble/Reed panelinden yenilenmesi gerekir. Anahtarsız teslim için
 > `-AnahtarsIz` ile üretip alıcıya panelden girdirin.

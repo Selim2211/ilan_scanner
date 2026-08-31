@@ -21,6 +21,7 @@
     {% if can('edit_sources') %}<a class="chip tone-kaynaklar" href="#kaynaklar">Kaynaklar</a>{% endif %}
     {% if can('edit_keys') %}<a class="chip tone-anahtar" href="#anahtarlar">API anahtarları</a>{% endif %}
     {% if can('edit_scan') %}<a class="chip tone-tarama" href="#tarama">Tarama</a>{% endif %}
+    {% if can('edit_ai') %}<a class="chip tone-yapayzeka" href="#yapayzeka">Yapay zeka</a>{% endif %}
     {% if can('maintenance') %}<a class="chip tone-bakim" href="#bakim">Bakım</a>{% endif %}
   </div>
 </div>
@@ -192,8 +193,11 @@
           </select>
         </div>
         <div class="field">
-          <label for="p-vcountry">Ülke</label>
-          <input id="p-vcountry" name="view_country" placeholder="Hepsi">
+          <label>Ülke</label>
+          {% with name="view_country", selected=[], groups=country_groups,
+                  extras=[], counts=False %}
+            {% include "_country_picker.html" %}
+          {% endwith %}
         </div>
         <div class="field">
           <label for="p-vex">Hariç tut</label>
@@ -479,6 +483,59 @@
     </div>
     <div class="field actions">
       <button class="btn-primary" type="submit">Tarama ayarlarını kaydet</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{# ---------- yapay zeka ---------- #}
+{% if can('edit_ai') %}
+<section id="yapayzeka" class="card settings-card tone-yapayzeka">
+  <header class="settings-head">
+    <h2>Yapay zeka</h2>
+    <p class="muted">
+      İlanın üstüne gelince açılan pencerede gösterilen özet ve <b>olmazsa olmaz
+      koşulları</b> yapay zeka çıkarır. Özet bir kez üretilir ve saklanır; aynı ilan
+      ikinci kez işlenmez. Yabancı dildeki ilan doğrudan İngilizce özetlenir.
+    </p>
+  </header>
+
+  <form method="post" action="/ayarlar/yapayzeka" class="filters">
+    <div class="filter-toggles">
+      <label class="check">
+        <input type="checkbox" name="ai_enabled" value="1" {% if ai.enabled %}checked{% endif %}>
+        Yapay zeka özeti açık
+      </label>
+    </div>
+    <div class="field">
+      <label for="ai-score">Minimum skor</label>
+      <input id="ai-score" type="number" min="0" name="ai_min_score"
+             value="{{ ai.min_score if ai.min_score is not none else 30 }}">
+      <small class="muted">Bu skorun altındaki ilan yapay zekaya gönderilmez (0 = hepsi).</small>
+    </div>
+    <div class="field">
+      <label for="ai-model">Model</label>
+      <input id="ai-model" type="text" name="ai_model" value="{{ ai.model or '' }}"
+             placeholder="gemini-3.5-flash-lite">
+      <small class="muted">Ucuz ve hızlı: <code>gemini-3.5-flash-lite</code> ·
+        alternatif <code>gemini-2.5-flash-lite</code></small>
+    </div>
+    <div class="field">
+      <label for="ai-key">Gemini API anahtarı</label>
+      <input id="ai-key" type="password" name="env__GEMINI_API_KEY" autocomplete="off"
+             placeholder="{% if ai_key_var %}kayıtlı — değiştirmek için yazın{% else %}henüz girilmedi{% endif %}">
+      {% if ai_key_var %}
+      <label class="check">
+        <input type="checkbox" name="clear__GEMINI_API_KEY" value="1"> Anahtarı sil
+      </label>
+      {% endif %}
+      <small class="muted">
+        Ücretsiz anahtar: <code>aistudio.google.com/apikey</code> ·
+        Anahtar yalnızca <code>.env</code> dosyasına yazılır.
+      </small>
+    </div>
+    <div class="field actions">
+      <button class="btn-primary" type="submit">Yapay zeka ayarlarını kaydet</button>
     </div>
   </form>
 </section>

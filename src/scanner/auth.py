@@ -75,6 +75,8 @@ PERMISSION_GROUPS: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("edit_search", "Ne arıyoruz — kelime ve sorgular", "Puanlama sözlüğünü değiştirme."),
         ("edit_sources", "Kaynakları yönet", "Kaynak açma/kapama, yeni kaynak ekleme."),
         ("edit_keys", "API anahtarlarını yönet", "Anahtar girme ve silme."),
+        ("edit_ai", "Yapay zeka ayarları",
+         "İlan özeti motoru: model, minimum skor eşiği ve Gemini anahtarı."),
         ("manage_profiles", "Arama profillerini yönet", "Profil ekleme, silme, düzenleme."),
         ("maintenance", "Bakım işlemleri", "Geçici dosya ve log temizliği."),
     ]),

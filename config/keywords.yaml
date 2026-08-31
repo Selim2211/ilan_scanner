@@ -32,6 +32,37 @@ boost:
   interim: 3
   "proje bazli": 6
   "sozlesmeli": 4
+  # Almanca karsiliklar: jooble-de ve careerjet(de_DE/de_AT/de_CH) Almanca ilan
+  # donduruyor. Bu satirlar olmadan o ilanlar yalnizca "sap"/"abap" puani alip
+  # min_score esigini gecemiyor ve listede hic gorunmuyorlardi.
+  freiberuflich: 6
+  selbststandig: 5
+  "selbststaendig": 5
+  projektarbeit: 6
+  projektbasis: 6
+  "auf projektbasis": 6
+  vertrag: 4
+  werkvertrag: 5
+  entwickler: 4
+  berater: 3
+  beratung: 2
+  fernarbeit: 4
+  homeoffice: 4
+  "home office": 4
+  "remote arbeit": 4
+  # Hollandaca / Fransizca (careerjet nl_NL, fr_FR)
+  zelfstandig: 5
+  freelanceopdracht: 6
+  opdracht: 3
+  ontwikkelaar: 4
+  thuiswerken: 4
+  independant: 5
+  "indépendant": 5
+  mission: 3
+  developpeur: 4
+  "développeur": 4
+  teletravail: 4
+  "télétravail": 4
   # kidem
   senior: 2
   lead: 1

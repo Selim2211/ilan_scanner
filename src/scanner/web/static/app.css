@@ -304,6 +304,56 @@ select { appearance:none; padding-right:34px;
                    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
   background-position:calc(100% - 18px) 52%, calc(100% - 13px) 52%;
   background-size:5px 5px, 5px 5px; background-repeat:no-repeat; }
+/* Cok secimli kutu (ulke filtresi): native <datalist> yerine kendi panelimiz -
+   datalist tarayicinin kendi acilir listesini aciyordu, temaya hic uymuyordu. */
+.ms { position:relative; }
+.ms-toggle {
+  font:inherit; font-size:14.5px; color:var(--ink-3); background:var(--surface-2);
+  border:1px solid var(--line-2); border-radius:var(--r-md);
+  padding:0 34px 0 12px; min-height:var(--tap); width:100%; text-align:left; cursor:pointer;
+  display:flex; align-items:center; overflow:hidden;
+  background-image:linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+                   linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+  background-position:calc(100% - 18px) 52%, calc(100% - 13px) 52%;
+  background-size:5px 5px, 5px 5px; background-repeat:no-repeat;
+  transition:border-color .18s ease, background-color .18s ease;
+}
+.ms-toggle:hover { border-color:var(--ink-3); }
+.ms.open .ms-toggle { border-color:var(--signal); background-color:var(--surface); }
+.ms.has-value .ms-toggle { color:var(--ink); }
+.ms-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ms-panel {
+  position:absolute; left:0; right:0; top:calc(100% + 6px); z-index:var(--z-pop);
+  min-width:250px; border:1px solid var(--line-2); border-radius:var(--r-md);
+  background:var(--surface); box-shadow:var(--shadow-2); overflow:hidden;
+}
+.ms-head { padding:8px; border-bottom:1px solid var(--line); }
+.ms-head input { min-height:36px; font-size:13.5px; }
+.ms-list { max-height:270px; overflow-y:auto; padding:6px; }
+.ms-group {
+  font:600 10.5px/1 var(--font-mono); letter-spacing:.1em; text-transform:uppercase;
+  color:var(--ink-3); margin:10px 0 5px; padding:0 8px;
+}
+.ms-group:first-child { margin-top:2px; }
+.ms-item {
+  display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:var(--r-sm);
+  font-size:13.5px; color:var(--ink-2); cursor:pointer;
+}
+.ms-item:hover { background:var(--surface-2); color:var(--ink); }
+.ms-item input { width:15px; min-height:15px; height:15px; margin:0; accent-color:var(--signal); }
+.ms-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ms-count { font:500 11.5px/1 var(--font-mono); color:var(--ink-3); }
+.ms-empty { padding:10px 8px; font-size:13px; color:var(--ink-3); }
+.ms-foot {
+  display:flex; justify-content:space-between; gap:8px;
+  padding:7px 10px; border-top:1px solid var(--line); background:var(--surface-2);
+}
+.ms-foot button {
+  border:none; background:none; padding:4px 2px; min-height:auto; width:auto;
+  font:inherit; font-size:13px; color:var(--ink-3); cursor:pointer;
+}
+.ms-foot button:hover { color:var(--signal); }
+
 .switches { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 .check {
   display:inline-flex; align-items:center; gap:8px; min-height:var(--tap);
@@ -726,6 +776,30 @@ code {
 .btn-primary.danger { background:var(--coral); color:#fff; }
 .btn-primary.danger:hover { background:color-mix(in srgb, var(--coral) 85%, #fff); }
 
+/* "Tumunu kontrol et" sonuc kutusu */
+.sweep-result-card { max-width:380px; text-align:center; padding-top:28px; }
+.sweep-result-icon {
+  width:52px; height:52px; margin:0 auto 14px; border-radius:50%;
+  display:grid; place-items:center; font-size:24px; line-height:1;
+  background:var(--signal-soft); color:var(--signal);
+}
+.sweep-result-icon.has-closed { background:var(--amber-soft); color:var(--amber); }
+.sweep-result-card h3 { text-align:center; }
+.sweep-result-stats {
+  display:flex; flex-direction:column; gap:8px; margin:4px 0 18px;
+  padding:12px 14px; border-radius:var(--r-md); background:var(--surface-2);
+  border:1px solid var(--line);
+}
+.sweep-result-row {
+  display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  font-size:13px; color:var(--ink-2);
+}
+.sweep-result-row b {
+  font:700 15px/1 var(--font-mono); color:var(--ink);
+}
+.sweep-result-row.highlight b { color:var(--amber); }
+.sweep-result-card .modal-actions { justify-content:center; }
+
 /* ---------- 15. etkin arama profili ---------- */
 .profilebar {
   display:flex; align-items:center; gap:12px; flex-wrap:wrap;
@@ -953,6 +1027,7 @@ html:not([data-theme="dark"]) .theme-btn .moon { transform:rotate(0deg) scale(1)
 .tone-kaynaklar  { --tone:#2bb673; }
 .tone-anahtar    { --tone:var(--amber); }
 .tone-tarama     { --tone:#7c8cff; }
+.tone-yapayzeka  { --tone:#b07cff; }
 .tone-gizli      { --tone:#c77dff; }
 .tone-bakim      { --tone:#e08b3a; }
 .tone-admin      { --tone:var(--coral); }
@@ -960,12 +1035,14 @@ html:not([data-theme="dark"]) .theme-btn .moon { transform:rotate(0deg) scale(1)
   :root:not([data-theme="dark"]) .tone-arama    { --tone:#1668a8; }
   :root:not([data-theme="dark"]) .tone-kaynaklar{ --tone:#1a7f52; }
   :root:not([data-theme="dark"]) .tone-tarama   { --tone:#4a58c4; }
+  :root:not([data-theme="dark"]) .tone-yapayzeka { --tone:#7a3fc4; }
   :root:not([data-theme="dark"]) .tone-gizli    { --tone:#8e3fc0; }
   :root:not([data-theme="dark"]) .tone-bakim    { --tone:#a4610f; }
 }
 :root[data-theme="light"] .tone-arama     { --tone:#1668a8; }
 :root[data-theme="light"] .tone-kaynaklar { --tone:#1a7f52; }
 :root[data-theme="light"] .tone-tarama    { --tone:#4a58c4; }
+:root[data-theme="light"] .tone-yapayzeka { --tone:#7a3fc4; }
 :root[data-theme="light"] .tone-gizli     { --tone:#8e3fc0; }
 :root[data-theme="light"] .tone-bakim     { --tone:#a4610f; }
 
@@ -1049,4 +1126,111 @@ html:not([data-theme="dark"]) .theme-btn .moon { transform:rotate(0deg) scale(1)
 .alsoseen {
   font-family:var(--font-mono); font-size:11px; color:var(--violet);
   background:var(--violet-soft); padding:2px 8px; border-radius:var(--r-pill);
+}
+
+/* ---- ilan kartinin ustune gelince ekranin ortasinda acilan ozet penceresi ----
+   Tek paylasilan modal (index.html sayfa sonunda) - kart basina degil, hangi
+   karta gelinirse JS icerigini onunla degistirir. `hidden` oznitelik JS
+   tarafindan kaldirilip eklenir; gecis icin ayrica opacity/transform kullanilir
+   ki `hidden` aninda atlamak yerine yumusak acilsin/kapansin. */
+.ozet-modal-backdrop {
+  position:fixed; inset:0; z-index:50;
+  display:flex; align-items:center; justify-content:center; padding:24px;
+  background:rgba(0,0,0,.5);
+  opacity:0; transition:opacity .15s ease;
+}
+.ozet-modal-backdrop:not([hidden]) { opacity:1; }
+/* `hidden` HTML oznitelik display:none uygular; JS onu kaldirmadan once
+   opacity gecisi baslamasin diye ayni anda visibility de degisiyor. */
+.ozet-modal-backdrop[hidden] { display:flex; visibility:hidden; pointer-events:none; }
+.ozet-modal-backdrop:not([hidden]) { visibility:visible; pointer-events:auto; }
+
+.ozet-modal {
+  width:min(560px, 100%); max-height:min(560px, 100%); overflow-y:auto;
+  padding:22px 24px; border-radius:var(--r-lg);
+  background:var(--surface-2); border:1px solid var(--line-2); box-shadow:var(--shadow-2);
+  position:relative; transform:translateY(8px); transition:transform .15s ease;
+}
+.ozet-modal-backdrop:not([hidden]) .ozet-modal { transform:none; }
+
+.ozet-modal-kapat {
+  position:absolute; top:10px; right:10px; width:30px; height:30px;
+  border-radius:var(--r-sm); border:1px solid var(--line-2); background:transparent;
+  color:var(--ink-2); font-size:18px; line-height:1; cursor:pointer;
+}
+.ozet-modal-kapat:hover { background:var(--surface-3); }
+
+.ozet-modal-baslik { margin:0 34px 12px 0; font-size:17px; line-height:1.35; }
+.ozet-modal-ozet { margin:0; line-height:1.6; color:var(--ink-2); font-size:14px; white-space:pre-line; }
+.ozet-modal-gereksinimler { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+.ozet-modal-gereksinimler:empty { display:none; }
+.ozet-modal-gereksinimler::before {
+  content:"Zorunlu kelimeler"; flex-basis:100%; font-size:11.5px; color:var(--ink-3); margin-bottom:2px;
+}
+/* Yapay zeka gercek cumlelik kosullar donduruyor: yan yana rozet degil, alt
+   alta okunan ALTI CIZILI maddeler. Kelime eslesmesi (kaynak="kelime") eski
+   rozet gorunumunde kaliyor - ikisi bakisla ayirt edilebilsin. */
+.ozet-modal-gereksinimler[data-kaynak="ai"] {
+  flex-direction:column; align-items:flex-start; gap:7px;
+}
+.ozet-modal-gereksinimler[data-kaynak="ai"]::before { content:"Olmazsa olmazlar"; }
+.ozet-modal-gereksinimler[data-kaynak="ai"] .hit.must {
+  display:list-item; margin-left:17px; padding:0;
+  border:none; background:transparent; color:var(--ink);
+  font-size:13px; line-height:1.5;
+  text-decoration:underline; text-underline-offset:3px; text-decoration-thickness:2px;
+  text-decoration-color:color-mix(in srgb, var(--violet) 65%, transparent);
+}
+.ozet-modal-dil {
+  display:inline-block; margin-top:12px; font-family:var(--font-mono);
+  font-size:10.5px; color:var(--ink-3); text-transform:uppercase;
+}
+.ozet-modal-dil:empty { display:none; }
+
+/* Yukleniyor gostergesi: donen kucuk halka, ekstra ikon dosyasi gerekmez. */
+.ozet-modal-spinner {
+  width:26px; height:26px; margin:18px auto; border-radius:50%;
+  border:3px solid var(--line-2); border-top-color:var(--signal);
+  animation:ozet-don .7s linear infinite;
+}
+@keyframes ozet-don { to { transform:rotate(360deg); } }
+
+/* ---- imlecin yanindaki DOLAN halka ----
+   Kasitsiz acilmayi engeller: liste uzerinde gezinen fare bir kartta
+   ~0.9 sn durmadikca ozet penceresi acilmaz. Halka dolarken kullanici
+   ne olacagini goruyor ve karttan cikarak vazgecebiliyor.
+   conic-gradient + kutle maskesi: tek dugum, SVG/ekstra DOM gerekmiyor. */
+.ozet-halka {
+  position:fixed; z-index:45; width:26px; height:26px;
+  margin:-13px 0 0 14px;            /* imlecin hemen sag ustu */
+  border-radius:50%; pointer-events:none;
+  opacity:0; transition:opacity .12s ease;
+  background:conic-gradient(var(--signal) var(--aci, 0deg), transparent 0deg);
+  /* ortasi bos: halka gorunumu */
+  mask:radial-gradient(circle, transparent 7px, #000 8px);
+  -webkit-mask:radial-gradient(circle, transparent 7px, #000 8px);
+}
+.ozet-halka.doluyor { opacity:1; animation:ozet-dol var(--sure, 900ms) linear forwards; }
+/* Halka doldu, ozet hazirlaniyor (yapay zeka ~1.5 sn): belirsiz donusle
+   bekleme surdurulur - kullanici bos ekrana bakmaz. */
+.ozet-halka.bekliyor {
+  opacity:1; background:none; mask:none; -webkit-mask:none;
+  border:2px solid var(--line-2); border-top-color:var(--signal);
+  animation:ozet-don .7s linear infinite;
+}
+@property --aci { syntax:"<angle>"; inherits:false; initial-value:0deg; }
+@keyframes ozet-dol { from { --aci:0deg; } to { --aci:360deg; } }
+
+/* @property desteklemeyen tarayicida aci animasyonu calismaz; halka yine
+   gorunur olsun diye donen bir yay gosteriyoruz - islev ayni kalir. */
+@supports not (background: conic-gradient(red 1deg, transparent 0deg)) {
+  .ozet-halka {
+    background:none; border:2px solid var(--line-2); border-top-color:var(--signal);
+    mask:none; -webkit-mask:none;
+  }
+  .ozet-halka.doluyor { animation:ozet-don .7s linear infinite; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ozet-halka.doluyor { animation-timing-function:steps(4, end); }
 }

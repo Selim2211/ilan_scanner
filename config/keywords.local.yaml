@@ -1,4 +1,4 @@
 # Bu dosya panelin Ayarlar ekrani tarafindan uretilir.
 # config.yaml ezilmez; buradaki degerler onun uzerine uygulanir.
 # Elle de duzenlenebilir. Bir anahtari varsayilana dondurmek icin satiri silin.
-{}
+min_score: 30

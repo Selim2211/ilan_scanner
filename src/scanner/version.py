@@ -2,11 +2,42 @@
 from __future__ import annotations
 
 APP_NAME = "İlan Tarayıcı"
-VERSION = "1.4.0"
-RELEASE_DATE = "2026-08-23"
+VERSION = "1.6.0"
+RELEASE_DATE = "2026-08-27"
 
 #: Hakkinda penceresinde madde madde gosterilir - "bu surumde ne degisti".
 CHANGELOG = [
+    ("1.6.0", "2026-08-27", [
+        "İlan özetleri artık yapay zeka ile hazırlanıyor: kısa özet ve o ilana "
+        "başvurmak için gereken \"olmazsa olmaz\" koşullar altı çizili listeleniyor.",
+        "Yabancı dildeki ilan doğrudan İngilizce özetleniyor.",
+        "Kartın üstüne gelince imlecin yanında bir halka dolar; pencere ancak "
+        "halka dolduktan sonra açılır — listede gezinirken yanlışlıkla açılmaz.",
+        "Ana ekrandaki sayılar düzeltildi: her karo, tıklayınca açılan listeyle "
+        "birebir aynı sayıyı gösteriyor (önce fazla sayıyorlardı; 'son 24 saat' "
+        "karosu tıklanınca bütün listeyi açıyordu).",
+        "Ayarlar > Yapay zeka: motoru açıp kapatma, model seçimi, API anahtarı ve "
+        "minimum skor eşiği (eşiğin altındaki ilan için token harcanmaz).",
+        "Her özet bir kez üretilip saklanıyor; aynı ilan ikinci kez işlenmiyor.",
+        "Yabancı dildeki ilanlarda 'olmazsa olmaz' maddeleri de artık İngilizceye "
+        "çevriliyor (önce özet İngilizce gelirken maddeler ilanın dilinde kalıyordu).",
+        "'Tümünü kontrol et' kapanmış ilanları çok daha iyi yakalıyor: tur başına "
+        "API ile sorulan ilan sayısı arttı ve uzun süredir taramada görünmeyen bir "
+        "ilan API'de de bulunamıyorsa ikinci tur beklenmeden kapatılıyor.",
+        "Kontrol turunun ilerleme çubuğu API aşamasında da akıyor ve Durdur "
+        "düğmesi o sırada anında işliyor (önce dakikalarca donmuş görünüyordu).",
+    ]),
+    ("1.5.0", "2026-08-26", [
+        "İlan kartının üstüne gelince ekranın ortasında özet penceresi açılıyor: "
+        "açıklama ve ilanın listeye girmesini sağlayan zorunlu kelimeler.",
+        "Almanca / Hollandaca / Fransızca ilanların açıklaması kutuda "
+        "İngilizce gösteriliyor (ilk bakışta çevrilir, sonra saklanır).",
+        "Yabancı dildeki ilanlar artık doğru puanlanıyor: 'freiberuflich', "
+        "'Werkvertrag', 'Fernarbeit' gibi terimler proje bazlı/uzaktan olarak "
+        "tanınıyor — önceden bu ilanlar sözleşmeli sayılmıyordu.",
+        "'Tümünü kontrol et': kontrol artık ekrandaki filtreye takılmıyor, "
+        "bütün aktif ilanları tarıyor ve en uzun süredir bakılmayandan başlıyor.",
+    ]),
     ("1.4.0", "2026-08-23", [
         "Çok profilli tarama: tam turda bütün arama profilleri besleniyor — "
         "artık başka profildeyken diğerinin listesi bayatlamıyor.",

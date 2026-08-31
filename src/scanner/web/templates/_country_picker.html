@@ -1,0 +1,46 @@
+{#
+  Aranabilir, cok secimli ulke kutusu. Iki yerde kullaniliyor: liste filtresi ve
+  profil varsayilani. Parametreler:
+    name     -> form alani adi ("country" / "view_country")
+    selected -> secili kodlarin listesi
+    groups   -> group_by_region(country_facets) ciktisi
+    counts   -> ilan sayilari gosterilsin mi
+
+  Cekirdek isaretleyiciler GERCEK checkbox: JS calismasa da form GET ile
+  calisir, app.js yalnizca panel/arama/ozet katmanini ekler.
+#}
+{% set secili = selected or [] %}
+<div class="ms" data-multiselect data-empty="Hepsi">
+  <button type="button" class="ms-toggle" aria-expanded="false" aria-haspopup="true">
+    <span class="ms-label">Hepsi</span>
+  </button>
+  <div class="ms-panel" hidden>
+    <div class="ms-head">
+      <input type="search" class="ms-search" placeholder="Ülke ara…" autocomplete="off"
+             aria-label="Ülke ara">
+    </div>
+    <div class="ms-list" role="group">
+      {% for bolge, items in groups %}
+      <p class="ms-group">{{ bolge }}</p>
+      {% for c in items %}
+      <label class="ms-item" data-search="{{ c.name|lower }} {{ c.code|lower }}">
+        <input type="checkbox" name="{{ name }}" value="{{ c.code }}"
+               {% if c.code in secili %}checked{% endif %}>
+        <span class="ms-name">{{ c.name }}</span>
+        {% if counts %}<span class="ms-count">{{ c.count }}</span>{% endif %}
+      </label>
+      {% endfor %}
+      {% else %}
+      <p class="ms-empty">Henüz ülke bilgisi olan ilan yok.</p>
+      {% endfor %}
+      <p class="ms-empty" data-ms-noresult hidden>Eşleşen ülke yok.</p>
+    </div>
+    <div class="ms-foot">
+      <button type="button" class="ms-clear">Temizle</button>
+      <button type="button" class="ms-close">Kapat</button>
+    </div>
+  </div>
+</div>
+{# Listede karsiligi olmayan degerler (profilde kayitli eski serbest metin ya da
+   bu filtre kumesinde hic ilani kalmamis ulke) kaybolmasin: gizli alanla tasinir. #}
+{% for kod in extras or [] %}<input type="hidden" name="{{ name }}" value="{{ kod }}">{% endfor %}

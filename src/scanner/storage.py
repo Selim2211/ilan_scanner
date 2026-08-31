@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
+from .countries import (NO_COUNTRY, RESOLVER_REV, country_name, is_code, resolve_country)
 from .models import Project
 from .normalize import budget_daily, fold, infer_period, parse_budget, parse_date
 
@@ -20,7 +21,8 @@ CREATE TABLE IF NOT EXISTS projects (
     title           TEXT NOT NULL,
     company         TEXT,
     location        TEXT,
-    country         TEXT,
+    country         TEXT,                   -- kaynagin yazdigi ham metin (sehir/eyalet olabilir)
+    country_code    TEXT,                   -- kanonik ISO2; filtre bunu kullanir (countries.py)
     work_mode       TEXT DEFAULT 'unknown',
     remote_percent  INTEGER,
     engagement      TEXT,
@@ -107,6 +109,7 @@ CREATE INDEX IF NOT EXISTS idx_pr_posted ON projects(posted_at);
 CREATE INDEX IF NOT EXISTS idx_pr_budget ON projects(budget_daily DESC);
 CREATE INDEX IF NOT EXISTS idx_pr_flag ON projects(quality_flag);
 CREATE INDEX IF NOT EXISTS idx_pr_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_pr_country ON projects(country_code);
 CREATE INDEX IF NOT EXISTS idx_nt_created ON notifications(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_nt_unread ON notifications(read_at);
 CREATE INDEX IF NOT EXISTS idx_nt_profile ON notifications(profile_id);
@@ -129,6 +132,22 @@ MIGRATIONS = {
     "flagged_at": "ALTER TABLE projects ADD COLUMN flagged_at TEXT",
     "flagged_by": "ALTER TABLE projects ADD COLUMN flagged_by TEXT",
     "api_miss_streak": "ALTER TABLE projects ADD COLUMN api_miss_streak INTEGER DEFAULT 0",
+    # Yabanci dildeki aciklamanin Ingilizce cevirisi. Ilanin ustune ilk kez
+    # gelindiginde doldurulur (translate.py), sonra buradan okunur - ayni ilan
+    # icin ikinci kez ceviri kotasi harcanmasin.
+    "summary_en": "ALTER TABLE projects ADD COLUMN summary_en TEXT",
+    "lang": "ALTER TABLE projects ADD COLUMN lang TEXT",
+    # Yapay zeka ozeti (ai.py). Ilanin ustune ilk kez gelindiginde uretilir,
+    # sonra buradan okunur - ayni ilan icin ikinci kez token harcanmaz.
+    # `ai_model` saklaniyor ki model degisince eski ozetler ayirt edilebilsin.
+    "ai_summary": "ALTER TABLE projects ADD COLUMN ai_summary TEXT",
+    "ai_must_haves": "ALTER TABLE projects ADD COLUMN ai_must_haves TEXT",
+    "ai_model": "ALTER TABLE projects ADD COLUMN ai_model TEXT",
+    "ai_at": "ALTER TABLE projects ADD COLUMN ai_at TEXT",
+    # Kanonik ulke kodu. Ham `country` kolonuna kaynaklar sehir/eyalet/"Remote"
+    # yazabiliyor; filtre onun uzerinde LIKE yapinca "CA" Casablanca'yi getiriyor,
+    # "Germany" ise "Deutschland" kayitlarini kaciriyordu.
+    "country_code": "ALTER TABLE projects ADD COLUMN country_code TEXT",
 }
 
 
@@ -174,6 +193,53 @@ def _budget_columns(budget_raw: str | None, currency: str | None,
     return amount, budget_daily(amount, period, code, rates)
 
 
+def country_values(value: str | list[str] | None) -> list[str]:
+    """Filtre degerini listeye cevirir; kodlar buyuk harfe normalize edilir.
+
+    Hem yeni bicimi (tekrarli `country=DE&country=AT`) hem eski serbest metni
+    ("Germany", profillerde kayitli) ayni yoldan gecirir.
+    """
+    if not value:
+        return []
+    ham = value if isinstance(value, (list, tuple)) else str(value).split(",")
+    out: list[str] = []
+    for parca in ham:
+        parca = (parca or "").strip()
+        if not parca:
+            continue
+        kod = parca.upper()
+        item = kod if is_code(kod) else parca       # __none__ ve serbest metin oldugu gibi kalir
+        if item not in out:
+            out.append(item)
+    return out
+
+
+def _country_clause(value: str | list[str] | None) -> tuple[str, list]:
+    """Ulke filtresinin WHERE parcasi.
+
+    Kanonik kodlar tam eslesir (`country_code IN (...)`); `__none__` ulkesi
+    cozulemeyen ilanlari getirir. Kod olmayan serbest metin eski LIKE
+    davranisina duser - adres cubugundan elle yazilan ya da profillerde
+    kayitli eski degerler calismaya devam etsin.
+    """
+    values = country_values(value)
+    if not values:
+        return "", []
+    codes = [v for v in values if is_code(v)]
+    free = [v for v in values if not is_code(v) and v != NO_COUNTRY]
+    parts: list[str] = []
+    params: list = []
+    if codes:
+        parts.append(f"country_code IN ({','.join('?' * len(codes))})")
+        params += codes
+    if NO_COUNTRY in values:
+        parts.append("COALESCE(country_code, '') = ''")
+    for metin in free:
+        parts.append("(lower(country) LIKE ? OR lower(location) LIKE ?)")
+        params += ["%" + metin.lower() + "%"] * 2
+    return "(" + " OR ".join(parts) + ")", params
+
+
 def _search_text(project: Project) -> str:
     """Aramada kullanilan sadelestirilmis metin (SQLite lower() Turkce harfi cevirmiyor)."""
     return fold(" ".join([project.title, project.company, project.location, project.country,
@@ -196,22 +262,40 @@ class Storage:
         self.conn.executescript(INDEXES)
         if "budget_daily" in added:
             self._backfill_budget()
+        self._backfill_country_codes()
         self._migrate_marks()
         self.conn.commit()
 
     def _migrate(self) -> set[str]:
-        """Eski veritabanlarina sonradan eklenen kolonlari tamamlar; eklenenleri doner."""
+        """Eski veritabanlarina sonradan eklenen kolonlari tamamlar; eklenenleri doner.
+
+        Panel ile ayni DB dosyasini ayni anda acan ikinci bir `Storage` (ornegin
+        arka planda calisan temizlik turu) burada YARISABILIR: ikisi de
+        `PRAGMA table_info` ile kolonu eksik gorup ayni ALTER'i dener, ikincisi
+        "duplicate column" ile patlar. Bu SQLite dosya kilidiyle onlenemiyor -
+        her `Storage` kendi baglantisini aciyor. Cozum: ALTER'i "zaten eklenmis"
+        anlamina gelen hatada yut, cunku sonuc (kolon var) her iki durumda ayni.
+        """
         existing = {row[1] for row in self.conn.execute("PRAGMA table_info(projects)")}
         added = set()
         for column, statement in MIGRATIONS.items():
-            if column not in existing:
-                self.conn.execute(statement)
+            if column not in existing and self._alter_guvenli(statement):
                 added.add(column)
 
         notif = {row[1] for row in self.conn.execute("PRAGMA table_info(notifications)")}
         if "profile_id" not in notif:
-            self.conn.execute("ALTER TABLE notifications ADD COLUMN profile_id INTEGER DEFAULT 0")
+            self._alter_guvenli("ALTER TABLE notifications ADD COLUMN profile_id INTEGER DEFAULT 0")
         return added
+
+    def _alter_guvenli(self, statement: str) -> bool:
+        """ALTER calistirir; yaris yuzunden kolon zaten eklenmisse sessizce gecer."""
+        try:
+            self.conn.execute(statement)
+            return True
+        except sqlite3.OperationalError as hata:
+            if "duplicate column" in str(hata).lower():
+                return False
+            raise
 
     def _migrate_marks(self) -> None:
         """Profil oncesi konan isaretleri (takip/basvuru/gizli) profil tablosuna tasir.
@@ -255,6 +339,41 @@ class Storage:
         self.conn.commit()
         return len(updates)
 
+    def _backfill_country_codes(self) -> int:
+        """country_code'u bos olan satirlari kanonik koda cevirir.
+
+        Kolon yeni eklendiginde butun tabloyu, sonraki aciliszlarda yalnizca
+        kalan bosluklari doldurur (cozulemeyen satira '' yazilir, bu yuzden
+        ayni satirlar her acilista yeniden taranmaz). Cozum ham metne bagli
+        oldugu icin (country, location) ciftleri gruplanir: 1600 satir birkac
+        yuz UPDATE'e iner (kaynak da gruba girer: cozulemeyen metinde kaynagin
+        pazari son care olarak kullaniliyor).
+        """
+        rev = self.conn.execute(
+            "SELECT value FROM meta WHERE key = 'country_resolver_rev'").fetchone()
+        # Cozucu surumu degistiyse daha once cozulememis ('') satirlar da yeniden
+        # denenir; degismediyse yalnizca hic bakilmamis (NULL) satirlar.
+        kosul = ("COALESCE(country_code, '') = ''" if (rev[0] if rev else "") != str(RESOLVER_REV)
+                 else "country_code IS NULL")
+        if not self.conn.execute(
+                f"SELECT 1 FROM projects WHERE {kosul} LIMIT 1").fetchone():
+            self._set_meta("country_resolver_rev", str(RESOLVER_REV))
+            return 0
+        pairs = list(self.conn.execute(
+            "SELECT DISTINCT COALESCE(country, '') c, COALESCE(location, '') l, source "
+            f"FROM projects WHERE {kosul}"))
+        self.conn.executemany(
+            f"UPDATE projects SET country_code = ? WHERE {kosul} "
+            "AND COALESCE(country, '') = ? AND COALESCE(location, '') = ? AND source = ?",
+            [(resolve_country(c, l, src), c, l, src) for c, l, src in pairs])
+        self._set_meta("country_resolver_rev", str(RESOLVER_REV))
+        self.conn.commit()
+        return len(pairs)
+
+    def _set_meta(self, key: str, value: str) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
+        self.conn.commit()
+
     def close(self) -> None:
         self.conn.close()
 
@@ -277,7 +396,7 @@ class Storage:
                         "UPDATE projects SET last_seen_at=?, score=?, keywords_hit=?, also_seen_on=?, "
                         "search_text=?, skills=?, work_mode=?, remote_percent=?, engagement=?, "
                         "is_contract=?, duration=?, starts_at=?, budget_raw=?, budget_amount=?, "
-                        "budget_daily=?, posted_at=?, "
+                        "budget_daily=?, posted_at=?, country_code=?, "
                         "is_active=1, missing_streak=0, last_missing_at=NULL, closed_at=NULL, "
                         "description = CASE WHEN length(?) > length(COALESCE(description, '')) "
                         "THEN ? ELSE description END WHERE fingerprint = ?",
@@ -287,21 +406,25 @@ class Storage:
                          project.remote_percent, project.engagement,
                          None if project.is_contract is None else int(project.is_contract),
                          project.duration, project.starts_at, project.budget_raw, amount, daily,
-                         _iso(project.posted_at), project.description, project.description,
+                         _iso(project.posted_at),
+                         resolve_country(project.country, project.location, project.source),
+                         project.description, project.description,
                          project.fingerprint),
                     )
                     updated += 1
                 else:
                     cur.execute(
                         "INSERT INTO projects (fingerprint, source, source_id, url, title, company, "
-                        "location, country, work_mode, remote_percent, engagement, is_contract, "
+                        "location, country, country_code, work_mode, remote_percent, engagement, "
+                        "is_contract, "
                         "duration, starts_at, budget_raw, budget_amount, budget_daily, currency, "
                         "description, skills, posted_at, "
                         "first_seen_at, last_seen_at, keywords_hit, score, also_seen_on, search_text, "
                         "status, is_supply, is_active, missing_streak) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,1,0)",
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,1,0)",
                         (project.fingerprint, project.source, project.source_id, project.url,
                          project.title, project.company, project.location, project.country,
+                         resolve_country(project.country, project.location, project.source),
                          project.work_mode, project.remote_percent, project.engagement,
                          None if project.is_contract is None else int(project.is_contract),
                          project.duration, project.starts_at, project.budget_raw, amount, daily,
@@ -425,6 +548,27 @@ class Storage:
     def get_by_fingerprint(self, fingerprint: str) -> sqlite3.Row | None:
         return self.conn.execute(
             "SELECT * FROM projects WHERE fingerprint = ?", (fingerprint,)).fetchone()
+
+    def save_translation(self, fingerprint: str, lang: str, summary_en: str | None) -> None:
+        """Tespit edilen dili ve (varsa) Ingilizce cevirisini saklar.
+
+        `summary_en` None olabilir: ilan zaten Ingilizce ya da ceviri servisi
+        cevap vermedi. Dil yine de yazilir, boylece Ingilizce ilanlar icin her
+        hover'da yeniden tespit/istek yapilmaz.
+        """
+        self.conn.execute(
+            "UPDATE projects SET lang = ?, summary_en = ? WHERE fingerprint = ?",
+            (lang, summary_en, fingerprint))
+        self.conn.commit()
+
+    def save_ai_summary(self, fingerprint: str, summary: str,
+                        must_haves: list[str], model: str) -> None:
+        """Yapay zeka ozetini saklar; ayni ilan bir daha ozetlenmez."""
+        self.conn.execute(
+            "UPDATE projects SET ai_summary = ?, ai_must_haves = ?, ai_model = ?, "
+            "ai_at = ? WHERE fingerprint = ?",
+            (summary, json.dumps(must_haves, ensure_ascii=False), model, _now(), fingerprint))
+        self.conn.commit()
 
     def report_closed(self, fingerprint: str, profile_id: int = 0) -> sqlite3.Row | None:
         """Kullanici 'artik aktif degil' derse hemen kapatir.
@@ -660,7 +804,8 @@ class Storage:
 
     def _where(self, min_score: int = 0, only_new: bool = False, source: str | None = None,
                search: str | None = None, work_mode: str | None = None, contract_only: bool = False,
-               shortlist: bool = False, country: str | None = None, include_closed: bool = False,
+               shortlist: bool = False, country: str | list[str] | None = None,
+               include_closed: bool = False,
                closed_only: bool = False, max_age_days: int | None = None,
                has_budget: bool = False, exclude: str | None = None,
                status: str | None = None, include_supply: bool = False,
@@ -703,15 +848,20 @@ class Storage:
         if has_budget:
             sql += " AND COALESCE(budget_raw, '') != ''"
         if country:
-            sql += " AND (lower(country) LIKE ? OR lower(location) LIKE ?)"
-            params += ["%" + country.lower() + "%"] * 2
-        if max_age_days:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
-            sql += " AND COALESCE(posted_at, first_seen_at) >= ?"
-            params.append(cutoff)
+            country_sql, country_params = _country_clause(country)
+            if country_sql:
+                sql += " AND " + country_sql
+                params += country_params
         # Tarih araligi: "sisteme dusme" secilirse first_seen_at'e bakilir.
         # Tarihler sabit +00:00 ekiyle saklandigi icin metin karsilastirmasi kronolojiktir.
         date_col = "first_seen_at" if date_field == "seen" else "COALESCE(posted_at, first_seen_at)"
+        if max_age_days:
+            # `date_field` ile AYNI sutuna bakar: "son 24 saatte SISTEME DUSEN"
+            # ile "son 24 saatte YAYINLANAN" farkli kumeler ve panelde ikisi de
+            # gerekiyor (24 saat karosu birincisini sayiyor).
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
+            sql += f" AND {date_col} >= ?"
+            params.append(cutoff)
         start = _day_start(date_from)
         if start:
             sql += f" AND {date_col} >= ?"
@@ -743,6 +893,12 @@ class Storage:
         "budget": "budget_daily IS NULL, budget_daily DESC, score DESC, fingerprint",
         "budget_asc": "budget_daily IS NULL, budget_daily ASC, score DESC, fingerprint",
         "mode": f"{_MODE_EXPR}, COALESCE(is_contract, 0) DESC, score DESC, fingerprint",
+        # Temizlik turu icin: olme ihtimali en yuksek olan (missing_streak) once,
+        # sonra hic kontrol edilmemisler, sonra en uzun suredir bakilmayanlar.
+        # `verify_candidates` ile ayni mantik. Tur basina 500 ilan sinirli oldugu
+        # icin sart: "score" sirasiyla her tur ayni en yuksek puanli 500 ilan
+        # taranir, listenin kuyrugu hic kontrol edilmezdi.
+        "stale": "missing_streak DESC, verified_at IS NOT NULL, verified_at, score DESC, fingerprint",
     }
 
     def query(self, limit: int = 20, offset: int = 0, order: str = "score", **filters) -> list[sqlite3.Row]:
@@ -802,29 +958,70 @@ class Storage:
         return [r[0] for r in self.conn.execute(
             "SELECT DISTINCT source FROM projects ORDER BY source")]
 
-    def countries(self) -> list[str]:
-        return [r[0] for r in self.conn.execute(
-            "SELECT country, COUNT(*) c FROM projects WHERE COALESCE(country,'') != '' "
-            "GROUP BY country ORDER BY c DESC LIMIT 25")]
+    def country_facets(self, **filters) -> list[dict]:
+        """Filtre kutusundaki ulke listesi: [{code, name, count}].
 
-    def stats(self, profile_id: int = 0) -> dict:
+        Sayimlar ULKE DISINDAKI filtrelerle yapilir (`country` disari atilir):
+        kutuda yazan sayi "su an baktigin listede kac ilan var" demek olsun,
+        ama bir ulke secilince digerlerinin sayisi sifirlanmasin. Cozulemeyen
+        ilanlar en sonda tek bir "Ülke belirsiz" kovasinda toplanir.
+        """
+        filters = {**filters, "country": None}
+        where, params = self._where(**filters)
+        rows = self.conn.execute(
+            "SELECT COALESCE(country_code, '') code, COUNT(*) c FROM projects"
+            + where + " GROUP BY code", params).fetchall()
+        out = [{"code": r["code"], "name": country_name(r["code"]), "count": r["c"]}
+               for r in rows if r["code"]]
+        out.sort(key=lambda x: (-x["count"], x["name"]))
+        bos = sum(r["c"] for r in rows if not r["code"])
+        if bos:
+            out.append({"code": NO_COUNTRY, "name": country_name(NO_COUNTRY), "count": bos})
+        return out
+
+    def stats(self, profile_id: int = 0, min_score: int = 0,
+              include_supply: bool = True) -> dict:
+        """Panel karolarindaki sayimlar.
+
+        `min_score` / `include_supply` KAROLARIN tikladiginda acilan listeyle
+        ayni kumeyi saymasi icin var. Panel listesi varsayilan olarak min skor
+        esigini uyguluyor ve arz ilanlarini gizliyor; bu sayimlar onlari yok
+        sayarsa karo "489 uzaktan" der, tiklayinca 484 ilan cikar - kullanici
+        haklı olarak sayilara guvenmez.
+
+        Varsayilanlar (0 / True) eski davranisi korur: CLI ve tepsi uygulamasi
+        veritabaninin TAMAMINI raporluyor, orada esik uygulanmamali.
+
+        `total` / `active` bilerek HAM kalir: "Tumunu kontrol et" dugmesi skor
+        esigine bakmadan butun aktif ilanlari tariyor, sayinin onunla ortusmesi
+        gerekiyor.
+        """
         mark = self._status_expr(profile_id)
+        # Karo sayimlarina eklenen "listede gercekten gorunur mu" kosulu.
+        gorunur = "score >= :minskor"
+        if not include_supply:
+            gorunur += " AND COALESCE(is_supply,0) = 0"
+
         row = self.conn.execute(
-            "SELECT COUNT(*) AS total, SUM(is_active=1) AS aktif, SUM(is_active=0) AS kapali, "
+            "SELECT COUNT(*) AS total, SUM(is_active=1) AS aktif, "
+            f"SUM(is_active=0 AND {gorunur}) AS kapali, "
             f"SUM(is_active=1 AND {mark}='new') AS yeni, SUM({mark}='shortlist') AS takip, "
             f"SUM({mark}='applied') AS basvuru, "
-            "SUM(is_active=1 AND work_mode='remote') AS remote, "
-            "SUM(is_active=1 AND work_mode='hybrid') AS hybrid, "
-            "SUM(is_active=1 AND is_contract=1) AS contract, "
+            f"SUM(is_active=1 AND work_mode='remote' AND {gorunur}) AS remote, "
+            f"SUM(is_active=1 AND work_mode='hybrid' AND {gorunur}) AS hybrid, "
+            f"SUM(is_active=1 AND is_contract=1 AND {gorunur}) AS contract, "
             "SUM(COALESCE(is_supply,0)=1) AS arz, MAX(last_seen_at) AS son, "
-            "SUM(is_active=1 AND first_seen_at >= :gun) AS yeni24, "
-            "SUM(is_active=1 AND COALESCE(posted_at, first_seen_at) >= :hafta) AS taze7, "
+            f"SUM(is_active=1 AND first_seen_at >= :gun AND {gorunur}) AS yeni24, "
+            "SUM(is_active=1 AND COALESCE(posted_at, first_seen_at) >= :hafta "
+            f"AND {gorunur}) AS taze7, "
             "SUM(is_active=1 AND COALESCE(verified_at, '') = '') AS dogrulanmamis, "
             "SUM(is_active=1 AND missing_streak > 0) AS supheli, "
-            "SUM(is_active=1 AND COALESCE(quality_flag,'') = 'problem') AS sorunlu "
+            "SUM(is_active=1 AND COALESCE(quality_flag,'') = 'problem' "
+            f"AND {gorunur}) AS sorunlu "
             "FROM projects",
             {"gun": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
-             "hafta": (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()}
+             "hafta": (datetime.now(timezone.utc) - timedelta(days=7)).isoformat(),
+             "minskor": int(min_score)}
         ).fetchone()
         return {"total": row["total"] or 0, "active": row["aktif"] or 0, "closed": row["kapali"] or 0,
                 "new": row["yeni"] or 0, "shortlist": row["takip"] or 0, "applied": row["basvuru"] or 0,

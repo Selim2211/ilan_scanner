@@ -193,8 +193,25 @@ freshness:
   # sorgudan sorguya farkli `id` verdigi icin id ile eslestirme yapilmaz.
   # Baslik aramasi ilani ~%13 oranda kaciriyor; bu yuzden tek bir bulunamama
   # kapatmaz, ust uste iki tur gerekir.
-  api_verify_limit: 60           # tur basina kac ilan API ile dogrulanir
+  api_verify_limit: 60           # OTOMATIK turda kac ilan API ile dogrulanir
   api_verify_miss_threshold: 2   # ust uste kac kez bulunamazsa kapat
+  # ELLE baslatilan "Tumunu kontrol et" turunda ayri (cok daha yuksek) sinir:
+  # kullanici bilerek bastigi, ilerlemeyi gordugu ve durdurabildigi icin uzun
+  # surmesi kabul edilebilir. Olculdu: ilan basina ~1.8 sn, yani 150 ilan/kaynak
+  # ~4-5 dakika. 60 ile kalinca 1650 Jooble ilani icin ~28 tur gerekiyordu ve
+  # kapanmis ilanlar listede kaliyordu.
+  api_verify_limit_manual: 150
+  # Iki BAGIMSIZ sinyal ust uste geldiginde tek bulunamama yeter: ilan hem son
+  # N taramada hic gorunmediyse HEM de API'de bulunamiyorsa, ikisinin ayni anda
+  # yanilma ihtimali dusuk. Yalnizca API'ye guvenildiginde 2 tur bekleniyor.
+  api_miss_close_streak: 3
+  # KULLANICI KARARI: link kontrolu hicbir zaman calismayan kaynaklarda (Jooble -
+  # hep 403) "KONTROL EDILIYOR" rozetindeki (missing_streak >= suspect_after_missing_scans)
+  # ilan gozlemle neredeyse hep gercekten kapanmis cikiyor - API'ye sorup 2 tur
+  # beklemek yerine dogrudan kapatilir. Yan etkisi: sayfalama penceresinden gecici
+  # dusen ama YAYINDA olan bir ilan da (nadiren) yanlislikla kapanabilir; boyle bir
+  # durum fark edilirse false kapatip eski (API ile bekleyen) davranisa donulur.
+  close_suspects_immediately: true
   # Panelden elle baslatilan TEMIZLIK TURU (Listeyi kontrol et). Otomatik
   # dogrulamadan farki: kullanicinin o an filtreledigi ilanlara bakar, kaynak
   # atlamaz (Jooble dahil denenir; 403 gelirse "dogrulanamadi" denir, kapatilmaz).
@@ -222,8 +239,26 @@ notifications:
   min_score: 15           # bu puanin altindaki yeni ilan bildirime dusmez
   keep_days: 30           # eski bildirimler otomatik silinir
 
+# Ilanin ustune gelince acilan pencerede gosterilen ozet + "olmazsa olmaz"
+# kosullari yapay zeka uretir (Google Gemini). Anahtar: Ayarlar > Yapay Zeka
+# (GEMINI_API_KEY olarak .env'e yazilir, koda/bu dosyaya YAZILMAZ).
+ai:
+  enabled: true
+  # Flash-Lite bu is icin fazlasiyla yetiyor ve en ucuz sinif.
+  # Alternatif: gemini-2.5-flash-lite (ikisi de gercek ilanlarla test edildi)
+  model: gemini-3.5-flash-lite
+  # Bu skorun ALTINDAKI ilan yapay zekaya hic gonderilmez - token bosa gitmesin.
+  # 0 = hepsi ozetlensin.
+  min_score: 30
+  timeout: 30
+
 panel:
   page_size: 20           # panelde sayfa basina ilan sayisi
+  # Ilanin ustune gelince cikan kutu, Almanca/Hollandaca/Fransizca aciklamayi
+  # MyMemory ile Ingilizce'ye cevirir (anahtar gerekmez). Buraya bir e-posta
+  # yazilirsa gunluk kota ~5.000 kelimeden 50.000'e cikar; adres ceviri
+  # servisine gonderilir, bos birakilirsa anonim kota kullanilir.
+  # translate_email: ""
   # Butceye gore siralama icin kaba USD kurlari. Yazilmazsa normalize.DEFAULT_RATES
   # kullanilir. Siralama icin yeterli, muhasebe icin degil.
   # currency_rates: {USD: 1.0, EUR: 1.08, GBP: 1.27, TRY: 0.03}

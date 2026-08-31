@@ -146,6 +146,7 @@ def run_scan(only_sources: list[str] | None = None, dry_run: bool = False,
     close_unverifiable_after = int(freshness.get("close_unverifiable_after_missing_scans", 6))
     skip_sources = set(freshness.get("verify_skip_sources") or [])
     suspect_check_limit = int(freshness.get("suspect_check_limit", 40))
+    close_suspects_immediately = bool(freshness.get("close_suspects_immediately", False))
     # 0 = kapali. Linki dogrulanabilen kaynaklarda son care kapatma esigi.
     close_after = int(freshness.get("close_after_missing_scans", 0))
     api_verify_limit, api_miss_threshold = api_verify_settings(config)
@@ -205,7 +206,8 @@ def run_scan(only_sources: list[str] | None = None, dry_run: bool = False,
                 storage, client, kept, healthy_sources, suspect_after,
                 close_unverifiable_after, skip_sources, suspect_check_limit,
                 close_after=close_after, config=config,
-                api_verify_limit=api_verify_limit, api_miss_threshold=api_miss_threshold)
+                api_verify_limit=api_verify_limit, api_miss_threshold=api_miss_threshold,
+                close_suspects_immediately=close_suspects_immediately)
             result.closed = len(closed_rows)
             _notify(storage, new_items, closed_rows, notify_min_score, profile_id)
             storage.prune_notifications(notify_keep_days)
@@ -242,7 +244,8 @@ def _resolve_missing(storage: Storage, client: HttpClient, kept: list[Project],
                      healthy_sources: set[str], suspect_after: int,
                      close_unverifiable_after: int, skip_sources: set[str],
                      check_limit: int, close_after: int = 0, config: dict | None = None,
-                     api_verify_limit: int = 60, api_miss_threshold: int = 2) -> list:
+                     api_verify_limit: int = 60, api_miss_threshold: int = 2,
+                     close_suspects_immediately: bool = False) -> list:
     """Kaynak listesinden dusen ilanlarin gercekten kapanip kapanmadigini belirler.
 
     Kaynaklar sayfalanmis pencere donduruyor: yeni ilan gelince eski ilan pencereden
@@ -267,6 +270,17 @@ def _resolve_missing(storage: Storage, client: HttpClient, kept: list[Project],
         storage.mark_missing(source, seen)
 
         if source in skip_sources:
+            if close_suspects_immediately:
+                # Kullanici gozlemi: bu kaynakta (Jooble - hep 403 doner, link kontrolu
+                # hicbir zaman calismiyor) supheli olan ilan sonradan neredeyse hep
+                # gercekten kapanmis cikiyor. API dogrulamasi (~%13 kacirma orani, ayrica
+                # Jooble'in kendi arama kotasini tuketiyor) beklemeden dogrudan kapatilir.
+                rows = storage.close_stale(source, suspect_after)
+                closed.extend(rows)
+                for row in rows:
+                    log.info("kapandi (supheli, dogrudan - %s turdur listede yok): %s",
+                             row["missing_streak"], row["title"])
+                continue
             # Linki acilamiyor. Kaynak kendi API'sinden konusabiliyorsa once ONA
             # sorulur; yalnizca o da yoksa uzun sureli yokluga bakilir.
             checker = verifier_for(source, config, client) if config else None
@@ -326,11 +340,22 @@ class LinkVerdict:
         return iter((self.closed, self.problem))
 
 
-def api_verify_settings(config: dict) -> tuple[int, int]:
-    """(tur basina dogrulanacak ilan, kapatma icin gereken ardisik kacirma)"""
+def api_verify_settings(config: dict, manual: bool = False) -> tuple[int, int]:
+    """(tur basina dogrulanacak ilan, kapatma icin gereken ardisik kacirma)
+
+    `manual=True` panelden elle baslatilan tur icindir: kullanici bilerek bastigi
+    ve ilerlemeyi gorup durdurabildigi icin cok daha fazla ilana bakilir.
+    """
     freshness = config.get("freshness") or {}
-    return (max(1, int(freshness.get("api_verify_limit", 60))),
+    anahtar = "api_verify_limit_manual" if manual else "api_verify_limit"
+    varsayilan = 150 if manual else 60
+    return (max(1, int(freshness.get(anahtar, varsayilan))),
             max(1, int(freshness.get("api_verify_miss_threshold", 2))))
+
+
+def api_miss_close_streak(config: dict) -> int:
+    """Kac tur kayip olan ilan TEK API kacirmasiyla kapatilir (0 = kapali)."""
+    return max(0, int((config.get("freshness") or {}).get("api_miss_close_streak", 3)))
 
 
 def verifier_for(name: str, config: dict, client: HttpClient):
@@ -350,13 +375,19 @@ def verifier_for(name: str, config: dict, client: HttpClient):
     return source
 
 
-def verify_with_source(storage: Storage, source, rows: list, miss_threshold: int) -> tuple[list, int, int]:
+def verify_with_source(storage: Storage, source, rows: list, miss_threshold: int,
+                       kayip_esigi: int = 0) -> tuple[list, int, int]:
     """Satirlari kaynagin API'sine sorar ve sonuca gore DB'yi gunceller.
 
     (kapatilanlar, yayinda_olanlar, karar_verilemeyenler) doner.
 
     Bulunamamak TEK BASINA kapatmaz: baslik aramasi ilani her zaman getirmiyor
     (olcumde ~%13 kaciriyor). Ust uste `miss_threshold` kez bulunamayan kapanir.
+
+    `kayip_esigi` (>0) ikinci bir BAGIMSIZ sinyali devreye sokar: ilan zaten
+    `kayip_esigi` turdur taramada hic gorunmuyorsa tek API kacirmasi yeter.
+    Iki olcumun ayni anda yanilma ihtimali dusuk; bunsuz 1.600+ Jooble ilani
+    icin ~28 tur gerekiyor ve kapanmis ilanlar listede kaliyordu.
     """
     if not rows:
         return [], 0, 0
@@ -372,11 +403,15 @@ def verify_with_source(storage: Storage, source, rows: list, miss_threshold: int
     kapatilan = []
     for row in rows:
         fp = row["fingerprint"]
-        if sonuc.get(fp) is False and sayaclar.get(fp, 0) >= miss_threshold:
+        if sonuc.get(fp) is not False:
+            continue
+        kayip = int((row["missing_streak"] if "missing_streak" in row.keys() else 0) or 0)
+        gereken = 1 if (kayip_esigi and kayip >= kayip_esigi) else miss_threshold
+        if sayaclar.get(fp, 0) >= gereken:
             storage.close_project(fp)
             kapatilan.append(row)
-            log.info("kapandi (%s API'sinde %s turdur yok): %s",
-                     source.name, sayaclar[fp], row["title"])
+            log.info("kapandi (%s API'sinde %s turdur yok, taramada %s turdur kayip): %s",
+                     source.name, sayaclar[fp], kayip, row["title"])
     return kapatilan, len(yayinda), bilinmiyor
 
 

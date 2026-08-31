@@ -10,6 +10,7 @@ gostermez - yetkisiz kullanici tiklayamayacagi bir dugme gormesin.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from contextlib import asynccontextmanager
@@ -18,11 +19,12 @@ from math import ceil
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .. import ai as ai_mod
 from .. import maintenance as maint_mod
 from .. import settings as settings_mod
 from ..auth import (COOKIE_NAME, DEFAULT_PERMISSIONS, PERMISSION_GROUPS, PERMISSIONS, Auth,
@@ -30,15 +32,18 @@ from ..auth import (COOKIE_NAME, DEFAULT_PERMISSIONS, PERMISSION_GROUPS, PERMISS
 from ..config import (env_path, keywords_overlay_path, load_base_config, load_base_keywords,
                       load_config, load_keywords, overlay_path, resolve_path, save_env,
                       save_overlay)
+from ..countries import group_by_region
+from ..normalize import fold
 from ..pipeline import rescore_all
 from ..probe import probe_source
-from ..sweep import LinkSweeper
+from ..sweep import LinkSweeper, sweep_settings
 from ..profiles import Profiles, capture_current, payload_from_form, validate_name
 from ..scheduler import from_config as scheduler_from_config
 from ..sources import REGISTRY, is_custom
 from ..sources.custom import FIELD_SPEC
 from ..sources.custom import KINDS as CUSTOM_KINDS
-from ..storage import Storage
+from ..storage import Storage, country_values
+from ..translate import detect_language, translate as translate_text
 from ..version import APP_NAME, VERSION
 
 BASE_DIR = Path(__file__).parent
@@ -61,9 +66,8 @@ def list_filters(min_score: int = 0, source: str = "", q: str = "", exclude: str
                  flag: str = "", profile_id: int = 0) -> dict:
     """Adres cubugu parametrelerini `Storage.query` filtrelerine cevirir.
 
-    Liste ve temizlik turu ayni yardimciyi kullanir: "ekranda gordugun ilanlar
-    kontrol edilir" sozunun tutmasi buna bagli, iki yerde ayri kurulan filtre
-    zamanla birbirinden ayrilirdi.
+    Temizlik turu da bunu cagirir ama parametresiz: varsayilanlar "profildeki
+    butun aktif ilanlar" kumesini verdigi icin ayri bir sorgu yazmaya gerek yok.
     """
     return dict(
         min_score=min_score, source=source or None, search=q or None, exclude=exclude or None,
@@ -206,6 +210,15 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         for ulke, deger in (signals.get("country_boost") or {}).items():
             agirlik["+" + str(ulke)] = int(deger)
         return agirlik
+
+    def must_keywords() -> set[str]:
+        """Zorunlu kelimeler - ilanin listeye GIRME sebebi, puan kaynagi degil.
+
+        scoring.py bunlari `fold()`'layip `keywords_hit` icine boost hit'leriyle
+        ayni listeye yaziyor; burada da fold'lanmali, yoksa sablondaki `in`
+        karsilastirmasi sessizce hic tutmaz.
+        """
+        return {fold(str(kelime)) for kelime in (state["keywords"].get("must_any") or [])}
 
     def currency_rates() -> dict | None:
         return (state["config"].get("panel") or {}).get("currency_rates")
@@ -390,7 +403,8 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
     # --- ilan listesi ---------------------------------------------------
     @app.get("/")
     def index(request: Request, q: str = "", exclude: str | None = None, source: str = "",
-              mode: str | None = None, country: str | None = None, min_score: int | None = None,
+              mode: str | None = None, country: list[str] | None = Query(None),
+              min_score: int | None = None,
               contract: int | None = None, budget: int | None = None, days: int | None = None,
               status: str = "", sort: str | None = None, closed: int = 0, supply: int = 0,
               page: int = 1, date_from: str = "", date_to: str = "", date_field: str = "",
@@ -414,7 +428,9 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             return view.get(key, fallback) if view else fallback
 
         mode = pick(mode, "mode", "") or ""
-        country = pick(country, "country", "") or ""
+        # Profilde tek metin olarak duruyor, adres cubugunda tekrarli parametre:
+        # ikisi de country_values() ile ayni listeye normalize edilir.
+        country = country_values(pick(country, "country", ""))
         exclude = pick(exclude, "exclude", "") or ""
         sort = pick(sort, "sort", "score") or "score"
         contract = int(pick(contract, "contract", 0) or 0)
@@ -434,6 +450,7 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             supply=supply, date_from=date_from, date_to=date_to, date_field=date_field,
             flag=flag, profile_id=pid)
 
+        facets = store.country_facets(**filters)
         total = store.count(**filters)
         total_pages = max(1, ceil(total / size))
         page = min(page, total_pages)
@@ -453,9 +470,13 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             "rows": rows,
             "as_list": _list,
             "sources": store.sources(),
-            "countries": store.countries(),
+            "country_groups": group_by_region(facets),
+            # facet listesinde yeri olmayan secimler (bu filtre kumesinde ilani
+            # kalmamis ulke ya da profilde kayitli eski serbest metin)
+            "country_extra": [c for c in country if c not in {f["code"] for f in facets}],
             "switch_profiles": switch_profiles,
-            "stats": store.stats(pid),
+            "stats": store.stats(pid, min_score=default_min_score(),
+                                     include_supply=False),
             "unread": store.unread_count(pid),
             "scan": scan_state(),
             "newest_seen": store.newest_seen_at(),
@@ -467,10 +488,13 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
                         "flag": flag},
             "suspect_after": suspect_after(),
             "hit_weights": hit_weights(),
+            "must_any": must_keywords(),
+            "sweep_max": sweep_settings(state["config"])[0],
             "title_multiplier": float(state["keywords"].get("title_multiplier", 2.0)),
             "page": page, "total": total, "total_pages": total_pages, "page_size": size,
             "pages": page_window(page, total_pages),
-            "base_query": urlencode(query_params),
+            # doseq: birden fazla ulke secilince sayfalama linki hepsini tasisin
+            "base_query": urlencode(query_params, doseq=True),
             "shown_from": 0 if total == 0 else (page - 1) * size + 1,
             "shown_to": min(page * size, total),
             "active_tab": "list",
@@ -488,7 +512,8 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             # her profil kendi bildirim akisini gorur
             "items": store.notifications(unread_only=bool(unread), limit=150, profile_id=pid),
             "unread": store.unread_count(pid),
-            "stats": store.stats(pid),
+            "stats": store.stats(pid, min_score=default_min_score(),
+                                     include_supply=False),
             "scan": scan_state(),
             "newest_seen": store.newest_seen_at(),
             "only_unread": bool(unread),
@@ -505,6 +530,79 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         store.close()
         return JSONResponse({"unread": count})
 
+    @app.get("/api/ozet")
+    def summary_feed(request: Request, fingerprint: str = ""):
+        """Ilanin ustune gelince acilan merkez pencere icin ozet + olmazsa olmazlar.
+
+        Sirali geri dusus zinciri - her adim bir oncekinin basarisizligini yutar,
+        panel her durumda bir sey gosterir:
+
+          1. AI onbellegi  -> `ai_summary` doluysa hic istek atilmaz.
+          2. AI            -> acik + skor esigi + anahtar varsa Gemini'ye sorulur,
+                              sonuc kalici saklanir (ai.py, storage.save_ai_summary).
+          3. Eski davranis -> AI kapali/esik alti/AI hata verdi: ham aciklama +
+                              gerekirse MyMemory cevirisi + `must_any` kelimeleri.
+
+        Ucuncu adim bilerek korunuyor: esigin altindaki ilanlar icin token
+        harcamadan da bir seyler gostermek gerekiyor.
+        """
+        _require(request, "view_list")
+        store = open_store()
+        try:
+            row = store.get_by_fingerprint(fingerprint) if fingerprint else None
+            if row is None:
+                return JSONResponse({"ok": False}, status_code=404)
+
+            baslik = row["title"] or ""
+            ham = (row["description"] or "").strip()
+
+            # --- 1. AI onbellegi ---------------------------------------
+            ai_ozet = (row["ai_summary"] or "").strip()
+            if ai_ozet:
+                return JSONResponse({"ok": True, "title": baslik, "summary": ai_ozet,
+                                     "requirements": _list(row["ai_must_haves"]),
+                                     "kaynak": "ai", "lang": "en", "translated": False})
+
+            # --- 2. AI ---------------------------------------------------
+            acik, model, esik, zaman_asimi = ai_mod.ayarlar(state["config"])
+            anahtar = os.environ.get("GEMINI_API_KEY", "").strip()
+            if acik and anahtar and ham and int(row["score"] or 0) >= esik:
+                sonuc = ai_mod.ozetle(baslik, ham, anahtar=anahtar, model=model,
+                                      zaman_asimi=zaman_asimi)
+                if sonuc:
+                    store.save_ai_summary(fingerprint, sonuc["summary"],
+                                          sonuc["must_haves"], model)
+                    return JSONResponse({"ok": True, "title": baslik,
+                                         "summary": sonuc["summary"],
+                                         "requirements": sonuc["must_haves"],
+                                         "kaynak": "ai", "lang": "en", "translated": False})
+
+            # --- 3. eski davranis ---------------------------------------
+            gereksinimler = [h for h in _list(row["keywords_hit"]) if h in must_keywords()]
+            if not ham:
+                return JSONResponse({"ok": True, "title": baslik, "summary": "",
+                                     "requirements": gereksinimler, "kaynak": "kelime",
+                                     "lang": "", "translated": False})
+
+            # Daha once bakilmis: dil biliniyor, ceviri varsa hazir.
+            if row["lang"]:
+                cevrilmis = (row["summary_en"] or "").strip()
+                return JSONResponse({"ok": True, "title": baslik, "summary": cevrilmis or ham,
+                                     "requirements": gereksinimler, "kaynak": "kelime",
+                                     "lang": row["lang"], "translated": bool(cevrilmis)})
+
+            dil = detect_language(ham)
+            # E-posta istege bagli: config'te doluysa MyMemory gunluk kotayi
+            # ~5.000 kelimeden 50.000'e cikariyor. Bos birakilabilir.
+            posta = str((state["config"].get("panel") or {}).get("translate_email") or "")
+            ceviri = translate_text(ham, source=dil, email=posta) if dil != "en" else None
+            store.save_translation(fingerprint, dil, ceviri)
+            return JSONResponse({"ok": True, "title": baslik, "summary": ceviri or ham,
+                                 "requirements": gereksinimler, "kaynak": "kelime",
+                                 "lang": dil, "translated": bool(ceviri)})
+        finally:
+            store.close()
+
     @app.get("/api/durum")
     def status_feed(request: Request, since_ts: str = ""):
         """Canli durum: tarama fazi, sayimlar ve `since_ts`den beri gelen yeni ilan sayisi."""
@@ -513,7 +611,8 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         payload = {
             "scan": scan_state(),
             "sweep": sweeper.snapshot(),
-            "stats": store.stats(pid),
+            "stats": store.stats(pid, min_score=default_min_score(),
+                                     include_supply=False),
             "unread": store.unread_count(pid),
             "newest_seen": store.newest_seen_at(),
             "new_since": store.count_since(since_ts) if since_ts else 0,
@@ -538,31 +637,27 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
 
     @app.post("/api/temizlik")
     def start_sweep(request: Request, payload: dict | None = None):
-        """Filtredeki ilanlarin linkini acip kapananlari kapatir (arka planda).
+        """TUM aktif ilanlarin linkini acip kapananlari kapatir (arka planda).
 
-        Gövde, adres cubugundaki filtre parametreleridir: kullanici ekranda neyi
-        goruyorsa o kontrol edilir. Liste ile ayni `list_filters` yardimcisindan
-        gecer.
+        Ekrandaki filtre ALINMAZ. Onceden "ne goruyorsan o kontrol edilir"di ama
+        bir filtre acikken kapanan ilanlar filtre disinda kaldigi icin hic
+        kontrol edilmiyordu - kullanici bunu "kapanan ilani bazen gormuyor"
+        olarak yasiyordu. Tur basina en fazla `sweep_max` ilan bakilir; sira
+        `stale` oldugu icin ardisik turlar veritabaninin tamamini dolasir.
+
+        `payload` imzada duruyor ama okunmuyor: eski istemciler gövde gondermeye
+        devam edebilir, istek 422 vermesin.
         """
         _require(request, "sweep_links")
-        payload = payload or {}
         pid = profile_of(request)
-        filters = list_filters(
-            min_score=int(payload.get("min_score") or 0),
-            source=str(payload.get("source") or ""), q=str(payload.get("q") or ""),
-            exclude=str(payload.get("exclude") or ""), mode=str(payload.get("mode") or ""),
-            contract=int(payload.get("contract") or 0), budget=int(payload.get("budget") or 0),
-            country=str(payload.get("country") or ""), days=int(payload.get("days") or 0),
-            status=str(payload.get("status") or ""),
-            supply=int(payload.get("supply") or 0),
-            date_from=str(payload.get("date_from") or ""),
-            date_to=str(payload.get("date_to") or ""),
-            date_field=str(payload.get("date_field") or ""),
-            flag=str(payload.get("flag") or ""), profile_id=pid)
-        # `closed` ALINMAZ: kapanmis ilan zaten kapanmis, tekrar kontrol bos trafik.
+        # Varsayilanlar tam hedef kumeyi verir: min_score=0, arama/kaynak/mod
+        # filtresi yok, `closed` verilmedigi icin yalnizca aktif ilanlar.
+        filters = list_filters(profile_id=pid)
 
         user = request.state.user
-        if not sweeper.start(filters, by=user.username if user else "", config=state["config"]):
+        # full=True: dugme gercekten "Tumunu" kontrol eder, sweep_max sinirini asar.
+        if not sweeper.start(filters, by=user.username if user else "",
+                             config=state["config"], full=True):
             return JSONResponse({"ok": False, "message": "Bir kontrol zaten sürüyor.",
                                  "sweep": sweeper.snapshot()}, status_code=409)
         return JSONResponse({"ok": True, "sweep": sweeper.snapshot()})
@@ -666,6 +761,10 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
                 "env_rows": settings_mod.env_state(config),
                 "auto": config.get("auto_scan") or {},
                 "panel": config.get("panel") or {},
+                "ai": config.get("ai") or {},
+                # Anahtarin KENDISI sablona gonderilmiyor - yalnizca "kayitli mi"
+                # bilgisi; ekranda gosterilmesi gerekmiyor, sizma yuzeyi olusturur.
+                "ai_key_var": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
                 "notify": config.get("notifications") or {},
                 "keywords": keywords,
                 "signals": keywords.get("signals") or {},
@@ -678,9 +777,11 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
                 "keywords_file": str(keywords_overlay_path()),
                 "env_file": str(env_path()),
                 "scan": scan_state(),
-                "stats": store.stats(pid),
+                "stats": store.stats(pid, min_score=default_min_score(),
+                                     include_supply=False),
                 "unread": store.unread_count(pid),
                 "newest_seen": store.newest_seen_at(),
+                "country_groups": group_by_region(store.country_facets(profile_id=pid)),
                 "profiles": profile_rows,
                 "profile_payload": Profiles.payload_of,
                 "maintenance_tasks": [t.as_dict() for t in maint_mod.survey(config)]
@@ -922,6 +1023,46 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             scheduler.set_enabled(enabled)
         return settings_redirect("tarama", ok="Tarama ayarları kaydedildi.")
 
+    # --- yapay zeka ------------------------------------------------------
+    @app.post("/ayarlar/yapayzeka")
+    async def save_ai_settings(request: Request):
+        """Ozet motoru: acik/kapali, model, esik ve Gemini anahtari.
+
+        Anahtar neden burada, "API anahtarlari" bolumunde degil: o ekran
+        `settings.env_state()` uzerinden kaynak REGISTRY'sini geziyor ve yalnizca
+        ilan KAYNAKLARININ anahtarlarini gosteriyor. Gemini bir ilan kaynagi degil.
+        """
+        _require(request, "edit_ai")
+        form = await request.form()
+        mevcut = state["config"].get("ai") or {}
+
+        def as_int(field: str, fallback: int) -> int:
+            raw = (form.get(field) or "").strip()
+            try:
+                return int(raw)
+            except ValueError:
+                return fallback
+
+        patch = {"ai": {
+            "enabled": form.get("ai_enabled") == "1",
+            "model": (form.get("ai_model") or "").strip() or ai_mod.VARSAYILAN_MODEL,
+            # 0 = hepsi ozetlensin; ust sinir yok, kullanici istedigi kadar kisabilir.
+            "min_score": max(0, as_int("ai_min_score", int(mevcut.get("min_score", 30)))),
+            "timeout": max(5, as_int("ai_timeout", int(mevcut.get("timeout", 30)))),
+        }}
+        save_overlay(patch, base=load_base_config())
+
+        # Anahtar .env'e yazilir (koda/config.yaml'a asla). Bos birakilirsa
+        # mevcut anahtar korunur - "sil" kutusu isaretlenmedikce.
+        if form.get("clear__GEMINI_API_KEY") == "1":
+            save_env({"GEMINI_API_KEY": ""})
+        else:
+            girilen = (form.get("env__GEMINI_API_KEY") or "").strip()
+            if girilen:
+                save_env({"GEMINI_API_KEY": girilen})
+
+        reload_config()
+        return settings_redirect("yapayzeka", ok="Yapay zeka ayarları kaydedildi.")
 
     # --- bakim ----------------------------------------------------------
     @app.post("/ayarlar/bakim")
@@ -1077,7 +1218,8 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
                 # her kullanicinin hangi profillere erisebildigi (kutular isaretli gelsin)
                 "assigned_profiles": {u.id: profiles.assigned_ids(u.id) for u in user_rows},
                 "scan": scan_state(),
-                "stats": store.stats(pid),
+                "stats": store.stats(pid, min_score=default_min_score(),
+                                     include_supply=False),
                 "unread": store.unread_count(pid),
                 "newest_seen": store.newest_seen_at(),
                 "active_tab": "admin",

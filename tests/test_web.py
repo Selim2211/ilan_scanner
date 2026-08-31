@@ -222,6 +222,66 @@ def test_sayfalama_baglantisi_yeni_filtreleri_tasir(client, tmp_path):
         assert parca in response.text, parca
 
 
+def _ulke_ilanlari(tmp_path, kayitlar):
+    from scanner.dedupe import fingerprint
+    from scanner.models import Project
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "data" / "projects.db")
+    ilanlar = []
+    for i, (ulke, konum) in enumerate(kayitlar):
+        p = Project(source="test", source_id=str(i), url=f"http://x/{i}",
+                    title=f"SAP ABAP {i}", company=f"F{i}", country=ulke, location=konum)
+        p.fingerprint = fingerprint(p)
+        ilanlar.append(p)
+    store.upsert(ilanlar)
+    store.close()
+
+
+def test_ulke_filtresi_coklu_secim(client, tmp_path):
+    """Tekrarli country parametresi birden fazla ulkeyi birlestirmeli."""
+    _ulke_ilanlari(tmp_path, [("Germany", "Berlin"), ("Deutschland", "Köln"),
+                              ("Österreich", "Wien"), ("Casablanca", "Casablanca")])
+
+    tek = client.get("/?country=DE&min_score=0")
+    assert tek.status_code == 200
+    assert "SAP ABAP 0" in tek.text and "SAP ABAP 1" in tek.text
+    assert "SAP ABAP 2" not in tek.text
+
+    coklu = client.get("/?country=DE&country=AT&min_score=0")
+    assert "SAP ABAP 2" in coklu.text
+    assert "SAP ABAP 3" not in coklu.text          # cozulemeyen kayit gelmemeli
+
+
+def test_ulke_kutusu_kanonik_adlari_gosterir(client, tmp_path):
+    """Datalist ham 'TX'/'Remote' degerlerini listeliyordu; artik ulke adi + sayi."""
+    _ulke_ilanlari(tmp_path, [("TX", "Austin, TX"), ("Remote", "Remote")])
+
+    response = client.get("/?min_score=0")
+    assert 'value="US"' in response.text
+    assert "Amerika Birleşik Devletleri" in response.text
+    assert "Ülke belirsiz" in response.text        # cozulemeyenler icin ayri kova
+    assert 'list="country-list"' not in response.text
+
+
+def test_ulke_secimi_sayfalamada_korunur(client, tmp_path):
+    client.post("/ayarlar/tarama", data={"page_size": "5"}, follow_redirects=False)
+    _ulke_ilanlari(tmp_path, [("Germany", "Berlin")] * 12)
+
+    response = client.get("/?country=DE&min_score=0")
+    assert response.status_code == 200
+    assert "country=DE" in response.text
+
+
+def test_eski_serbest_metin_ulke_filtresi_calisir(client, tmp_path):
+    """Profillerde kayitli eski degerler (kod degil) sessizce sonucsuz kalmamali."""
+    _ulke_ilanlari(tmp_path, [("Germany", "Berlin"), ("Österreich", "Wien")])
+
+    response = client.get("/?country=Germany&min_score=0")
+    assert "SAP ABAP 0" in response.text
+    assert "SAP ABAP 1" not in response.text
+
+
 def test_tarih_araligi_gun_filtresini_ezer(client):
     """Ikisi ayni ekseni filtreliyor; aralik seciliyse o kazanir."""
     response = client.get("/?days=7&date_from=2026-08-01")
@@ -289,7 +349,7 @@ def test_temizlik_ikinci_istek_reddedilir(client, monkeypatch):
     # Tur bitmesin diye kontrol askida kalsin
     engel = __import__("threading").Event()
 
-    def bekle(self, store, client_, rows, workers, profile_id):
+    def bekle(self, store, client_, rows, workers, profile_id, config):
         engel.wait(timeout=5)
 
     monkeypatch.setattr(app_mod.LinkSweeper, "_sweep", bekle)
@@ -300,3 +360,255 @@ def test_temizlik_ikinci_istek_reddedilir(client, monkeypatch):
         assert "sürüyor" in ikinci.json()["message"]
     finally:
         engel.set()
+
+def test_temizlik_ekrandaki_filtreyi_yok_sayar(client, monkeypatch):
+    """Tur, gonderilen filtreye BAKMADAN butun aktif ilanlari tarar.
+
+    Eskiden ekrandaki filtre neyse o taranirdi; bir filtre acikken kapanan
+    ilanlar filtre disinda kaldigi icin hic kontrol edilmiyor, kullanici da
+    "kapanan ilani bazen gormuyor" diye yasiyordu.
+    """
+    import scanner.web.app as app_mod
+
+    yakalanan: dict = {}
+
+    def yakala(self, filters, by="", config=None, full=False):
+        yakalanan.update(filters)
+        return True
+
+    monkeypatch.setattr(app_mod.LinkSweeper, "start", yakala)
+    # Hicbir ilani eslemeyecek bir filtre gonderiliyor:
+    client.post("/api/temizlik", json={"min_score": "999", "q": "boyleBirSeyYok",
+                                       "source": "olmayan-kaynak"})
+
+    assert yakalanan["min_score"] == 0
+    assert yakalanan["search"] is None
+    assert yakalanan["source"] is None
+    # `closed` verilmez: Storage varsayilani yalnizca aktif ilanlari getirir.
+    assert not yakalanan.get("closed_only")
+
+
+def test_temizlik_en_eski_kontrol_edilenden_baslar():
+    """`stale` sirasi ORDERS icinde tanimli olmali.
+
+    Tur basina 500 ilan sinirli: varsayilan puan siralamasiyla her tur ayni
+    en yuksek puanli ilanlar taranir, listenin kuyruguna hic sira gelmezdi.
+    """
+    from scanner.storage import Storage
+
+    assert "stale" in Storage.ORDERS
+    sira = Storage.ORDERS["stale"]
+    assert sira.startswith("missing_streak DESC")   # olme ihtimali yuksek olan once
+    assert "verified_at" in sira                    # sonra en uzun suredir bakilmayan
+
+# --- ilan ozeti (merkez modal, /api/ozet) ----------------------------------
+
+def _tek_ilan(tmp_path, description="", title="SAP ABAP Test", score=0):
+    """Tek ilanli bir DB kurar, fingerprint'i dondurur - /api/ozet testleri icin."""
+    from scanner.dedupe import fingerprint
+    from scanner.models import Project
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "data" / "projects.db")
+    p = Project(source="test", source_id="1", url="http://x/1", title=title,
+               description=description, keywords_hit=["abap", "sap", "remote"],
+               score=score)
+    p.fingerprint = fingerprint(p)
+    store.upsert([p])
+    store.close()
+    return p.fingerprint
+
+
+def test_ozet_bilinmeyen_fingerprint_404(client):
+    assert client.get("/api/ozet?fingerprint=yok").status_code == 404
+
+
+def test_ozet_yaniti_zorunlu_alanlari_icerir(client, tmp_path, monkeypatch):
+    """`requirements` yalnizca must_any ile kesisen kelimeleri icermeli."""
+    import scanner.web.app as app_mod
+
+    fp = _tek_ilan(tmp_path, description="We need an SAP ABAP remote consultant.")
+    monkeypatch.setattr(app_mod, "detect_language", lambda text: "en")
+
+    veri = client.get(f"/api/ozet?fingerprint={fp}").json()
+    assert veri["ok"] is True
+    assert veri["title"] == "SAP ABAP Test"
+    assert veri["summary"].startswith("We need an SAP ABAP")
+    assert set(veri["requirements"]) == {"abap", "sap"}   # "remote" must_any'de degil
+    assert veri["translated"] is False
+
+
+def test_ozet_ingilizce_ilan_cevrilmez(client, tmp_path, monkeypatch):
+    """Ceviri servisi hic cagrilmamali: kota bosa harcanmasin."""
+    import scanner.translate as translate_mod
+
+    fp = _tek_ilan(tmp_path, description="We need an SAP ABAP remote consultant.")
+    cagrildi = []
+    monkeypatch.setattr(translate_mod, "translate",
+                        lambda *a, **k: cagrildi.append(1) or "should not happen")
+
+    client.get(f"/api/ozet?fingerprint={fp}")
+    assert cagrildi == []
+
+
+def test_ozet_ceviri_cache_lenir(client, tmp_path, monkeypatch):
+    """Ikinci istekte ceviri servisine tekrar gidilmemeli - DB'den okunmali."""
+    import scanner.web.app as app_mod
+
+    fp = _tek_ilan(tmp_path, description="Wir suchen einen SAP ABAP Entwickler.")
+    monkeypatch.setattr(app_mod, "detect_language", lambda text: "de")
+    cagri_sayisi = [0]
+
+    def sahte_ceviri(text, source="", target="en", email=""):
+        cagri_sayisi[0] += 1
+        return "We are looking for an SAP ABAP developer."
+
+    monkeypatch.setattr(app_mod, "translate_text", sahte_ceviri)
+
+    ilk = client.get(f"/api/ozet?fingerprint={fp}").json()
+    assert ilk["translated"] is True
+    assert ilk["lang"] == "de"
+    assert ilk["summary"] == "We are looking for an SAP ABAP developer."
+
+    ikinci = client.get(f"/api/ozet?fingerprint={fp}").json()
+    assert ikinci["summary"] == ilk["summary"]
+    assert cagri_sayisi[0] == 1        # servise ikinci kez gidilmedi
+
+
+def test_ozet_bos_aciklama(client, tmp_path):
+    fp = _tek_ilan(tmp_path, description="")
+    veri = client.get(f"/api/ozet?fingerprint={fp}").json()
+    assert veri["ok"] is True
+    assert veri["summary"] == ""
+    assert veri["translated"] is False
+
+# --- yapay zeka ozeti -------------------------------------------------------
+
+def _ai_kur(monkeypatch, client, sonuc, *, esik=30, acik=True):
+    """AI'yi yapilandirir ve sahte ozetleyiciyi baglar; cagri sayacini dondurur."""
+    import scanner.web.app as app_mod
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-anahtari")
+    sayac = {"n": 0}
+
+    def sahte_ozetle(baslik, aciklama, *, anahtar, model, zaman_asimi):
+        sayac["n"] += 1
+        return sonuc
+
+    monkeypatch.setattr(app_mod.ai_mod, "ozetle", sahte_ozetle)
+    client.post("/ayarlar/yapayzeka", data={
+        "ai_enabled": "1" if acik else "0", "ai_min_score": str(esik),
+        "ai_model": "test-model", "ai_timeout": "30",
+    }, follow_redirects=False)
+    return sayac
+
+
+AI_SONUC = {"summary": "Remote SAP ABAP contract, 6 months.",
+            "must_haves": ["5+ years ABAP", "Fluent English"]}
+
+
+def test_ai_esik_ustundeki_ilani_ozetler(client, tmp_path, monkeypatch):
+    fp = _tek_ilan(tmp_path, description="Wir suchen SAP ABAP Entwickler.", score=45)
+    sayac = _ai_kur(monkeypatch, client, AI_SONUC, esik=30)
+
+    veri = client.get(f"/api/ozet?fingerprint={fp}").json()
+    assert veri["kaynak"] == "ai"
+    assert veri["summary"] == AI_SONUC["summary"]
+    assert veri["requirements"] == AI_SONUC["must_haves"]
+    assert sayac["n"] == 1
+
+
+def test_ai_esik_altindaki_ilani_gondermez(client, tmp_path, monkeypatch):
+    """Token disiplini: dusuk skorlu ilan yapay zekaya HIC gitmemeli."""
+    fp = _tek_ilan(tmp_path, description="We need an SAP ABAP consultant.", score=10)
+    sayac = _ai_kur(monkeypatch, client, AI_SONUC, esik=30)
+
+    veri = client.get(f"/api/ozet?fingerprint={fp}").json()
+    assert sayac["n"] == 0
+    assert veri["kaynak"] == "kelime"
+    assert set(veri["requirements"]) == {"abap", "sap"}
+
+
+def test_ai_kapaliyken_gonderilmez(client, tmp_path, monkeypatch):
+    fp = _tek_ilan(tmp_path, description="We need an SAP ABAP consultant.", score=90)
+    sayac = _ai_kur(monkeypatch, client, AI_SONUC, esik=0, acik=False)
+
+    assert client.get(f"/api/ozet?fingerprint={fp}").json()["kaynak"] == "kelime"
+    assert sayac["n"] == 0
+
+
+def test_ai_ozeti_onbelleklenir(client, tmp_path, monkeypatch):
+    """Ikinci istekte tekrar token harcanmamali - DB'den okunmali."""
+    fp = _tek_ilan(tmp_path, description="Wir suchen SAP ABAP Entwickler.", score=45)
+    sayac = _ai_kur(monkeypatch, client, AI_SONUC, esik=30)
+
+    ilk = client.get(f"/api/ozet?fingerprint={fp}").json()
+    ikinci = client.get(f"/api/ozet?fingerprint={fp}").json()
+    assert ikinci["summary"] == ilk["summary"]
+    assert ikinci["requirements"] == ilk["requirements"]
+    assert sayac["n"] == 1                  # servise ikinci kez gidilmedi
+
+
+def test_ai_hata_verince_eski_davranisa_duser(client, tmp_path, monkeypatch):
+    """Kota dolmus/anahtar bozuksa panel bos kalmamali."""
+    fp = _tek_ilan(tmp_path, description="We need an SAP ABAP consultant.", score=90)
+    sayac = _ai_kur(monkeypatch, client, None, esik=0)      # ozetle() None doner
+
+    veri = client.get(f"/api/ozet?fingerprint={fp}").json()
+    assert sayac["n"] == 1
+    assert veri["ok"] is True
+    assert veri["kaynak"] == "kelime"
+    assert veri["summary"].startswith("We need an SAP ABAP")
+
+
+def test_ai_anahtarsizken_gonderilmez(client, tmp_path, monkeypatch):
+    import scanner.web.app as app_mod
+
+    fp = _tek_ilan(tmp_path, description="We need an SAP ABAP consultant.", score=90)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    sayac = {"n": 0}
+    monkeypatch.setattr(app_mod.ai_mod, "ozetle",
+                        lambda *a, **k: sayac.__setitem__("n", sayac["n"] + 1))
+
+    assert client.get(f"/api/ozet?fingerprint={fp}").json()["kaynak"] == "kelime"
+    assert sayac["n"] == 0
+
+
+def test_ai_ayarlari_overlaye_yazilir(client, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "mevcut")
+    client.post("/ayarlar/yapayzeka", data={
+        "ai_enabled": "1", "ai_min_score": "-5",      # negatif deger kirpilmali
+        "ai_model": "  ", "ai_timeout": "1",           # bos model -> varsayilan
+    }, follow_redirects=False)
+
+    data = config_mod.load_overlay(config_mod.overlay_path())
+    assert data["ai"]["min_score"] == 0                # max(0, -5)
+    assert data["ai"]["timeout"] == 5                  # max(5, 1)
+    # Model overlay'e YAZILMAZ: bos birakilinca varsayilana dusuyor, varsayilan da
+    # config.yaml'daki degerle ayni - `prune_unchanged` onu eliyor. Boylece ileride
+    # varsayilan model degisirse kullaniciya kendiliginden ulasir.
+    assert "model" not in data["ai"]
+
+    # Farkli bir model verilirse overlay'e yazilmali:
+    client.post("/ayarlar/yapayzeka", data={
+        "ai_enabled": "1", "ai_min_score": "30",
+        "ai_model": "gemini-2.5-flash-lite", "ai_timeout": "30",
+    }, follow_redirects=False)
+    data = config_mod.load_overlay(config_mod.overlay_path())
+    assert data["ai"]["model"] == "gemini-2.5-flash-lite"
+
+
+def test_ai_anahtari_bos_birakilirsa_korunur(client, monkeypatch, tmp_path):
+    """Kaydet'e basarken alan bos ise mevcut anahtar silinmemeli."""
+    import scanner.config as config_mod2
+
+    monkeypatch.setenv("GEMINI_API_KEY", "eski-anahtar")
+    yazilanlar = []
+    monkeypatch.setattr(config_mod2, "save_env", lambda v: yazilanlar.append(v))
+    import scanner.web.app as app_mod
+    monkeypatch.setattr(app_mod, "save_env", lambda v: yazilanlar.append(v))
+
+    client.post("/ayarlar/yapayzeka", data={
+        "ai_enabled": "1", "ai_min_score": "30", "ai_model": "m", "ai_timeout": "30",
+    }, follow_redirects=False)
+    assert yazilanlar == []                 # .env'e hic dokunulmadi

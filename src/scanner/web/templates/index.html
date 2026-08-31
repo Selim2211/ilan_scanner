@@ -53,7 +53,10 @@
   <a class="tile violet" href="/?contract=1&sort=score">
     <b data-stat="contract">{{ stats.contract }}</b><span>proje bazlı</span>
   </a>
-  <a class="tile" href="/?sort=new">
+  {# `date_field=seen` sart: karo "son 24 saatte SISTEME DUSEN" ilani sayiyor,
+     yayin tarihini degil. Once yalnizca `sort=new` vardi - o bir SIRALAMA,
+     filtre degil; tiklayinca butun liste geliyordu (293 yerine 1687). #}
+  <a class="tile" href="/?days=1&date_field=seen&sort=new">
     <b data-stat="new_24h">{{ stats.new_24h }}</b><span>son 24 saat</span>
   </a>
   <a class="tile" href="/?days=7&sort=date">
@@ -133,9 +136,11 @@
         </select>
       </div>
       <div class="field">
-        <label for="f-country">Ülke</label>
-        <input id="f-country" name="country" value="{{ filters.country }}" list="country-list" placeholder="Hepsi">
-        <datalist id="country-list">{% for c in countries %}<option value="{{ c }}">{% endfor %}</datalist>
+        <label>Ülke</label>
+        {% with name="country", selected=filters.country, groups=country_groups,
+                extras=country_extra, counts=True %}
+          {% include "_country_picker.html" %}
+        {% endwith %}
       </div>
       <div class="field">
         <label for="f-status">Durum</label>
@@ -245,11 +250,11 @@
     Veritabanı tazeliği: <b>{{ stats.last_seen | since or "-" }}</b>
     {% if scan and scan.enabled %} · otomatik tarama her {{ scan.interval_minutes }} dk{% endif %}
     {# Liste DB'den okunur: bir ilanin kapandigini ancak linki acilinca ogreniriz. #}
-    {% if total and not filters.closed and can('sweep_links') %}
+    {% if stats.active and not filters.closed and can('sweep_links') %}
     <button class="btn btn-sm" id="sweep-now" type="button"
-            data-total="{{ total }}" data-query="{{ base_query }}"
-            title="Bu filtredeki ilanların linkini tek tek açar, kapananları listeden düşürür.">
-      Listeyi kontrol et
+            data-total="{{ stats.active }}"
+            title="Ekrandaki filtreden bağımsız: şu an aktif olan {{ stats.active }} ilanın linkini tek tek açar, kapananları listeden düşürür.">
+      Tümünü kontrol et
     </button>
     <button class="btn btn-sm" id="sweep-cancel" type="button" hidden>Durdur</button>
     {% endif %}
@@ -265,7 +270,12 @@
     {% set posted = row["posted_at"] or row["first_seen_at"] %}
     {% set gun = posted | age_days %}
     {% set sorunlu = (row["quality_flag"] or "") == "problem" %}
+    {% set hits = as_list(row["keywords_hit"]) %}
+    {# `data-fingerprint`: app.js karta gelince bunu okuyup /api/ozet'ten
+       ozet + zorunlu gereksinimleri ceker, merkezdeki paylasilan modal'i
+       (#ozet-modal) doldurur - kartin kendisinde ayri bir kutu tutulmaz. #}
     <article class="card item {{ mode }} {% if row['is_active'] == 0 %}closed{% endif %} {% if sorunlu %}flagged{% endif %}"
+             data-fingerprint="{{ row['fingerprint'] }}"
              style="animation-delay:{{ loop.index0 * 22 }}ms">
       {# skor halkasi: 50 puan tam tur; sorunluysa sari halka ile cevrelenir #}
       <div class="score {% if score >= 30 %}hi{% elif score >= 18 %}mid{% endif %}">
@@ -444,4 +454,17 @@
     <p style="margin-top:14px"><a class="btn" href="/">Filtreleri sıfırla</a></p>
   </div>
 {% endif %}
+
+{# Tek paylasilan ozet modal'i: hangi karta gelinirse onun verisiyle doldurulur
+   (app.js). 20+ kart icin 20+ gizli kutu tutmak yerine tek DOM, /api/ozet'ten
+   gelen veriye gore icerigi degisir. #}
+<div id="ozet-modal" class="ozet-modal-backdrop" hidden aria-hidden="true">
+  <div class="ozet-modal" role="dialog" aria-modal="true" aria-labelledby="ozet-modal-baslik">
+    <button type="button" class="ozet-modal-kapat" aria-label="Kapat">×</button>
+    <h3 id="ozet-modal-baslik" class="ozet-modal-baslik"></h3>
+    <p class="ozet-modal-ozet"></p>
+    <div class="ozet-modal-gereksinimler"></div>
+    <span class="ozet-modal-dil"></span>
+  </div>
+</div>
 {% endblock %}
