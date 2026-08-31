@@ -425,7 +425,13 @@ select { appearance:none; padding-right:34px;
 }
 [data-view="grid"] .titleline { gap:5px; }
 [data-view="grid"] .pill { font-size:9.5px; padding:2px 5px; }
-[data-view="grid"] .meta { gap:2px 9px; margin-top:4px; font-size:11.5px; }
+[data-view="grid"] .meta { gap:2px 9px; margin-top:4px; font-size:11.5px; line-height:1.35; }
+/* Her ogeyi (firma/tarih/kaynak) TEK satirda tutar: uzun firma adi kendi
+   icinde sarilinca satir sayisi ongorulemez oluyor, 2.6em siniri bir satirin
+   TAM ORTASINDAN kesip yari harfli, "bozuk" gorunen bir kirpma birakiyordu. */
+[data-view="grid"] .meta span {
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
+}
 /* ikincil bilgiler izgarada yer kaplamasin */
 [data-view="grid"] .desc,
 [data-view="grid"] .tags,
@@ -436,7 +442,9 @@ select { appearance:none; padding-right:34px;
 [data-view="grid"] .m-dur { display:none; }
 /* sorunlu ilan izgarada da belli: baslikta sari nokta + SORUNLU rozeti duruyor,
    uzun aciklama notu yalnizca detayli goruntude gosteriliyor */
-[data-view="grid"] .meta { max-height:2.6em; overflow:hidden; }
+/* 2 tam satir + kucuk pay: eskiden 2.6em, govdenin 1.6 global satir
+   yuksekligiyle carpip 2. satirin ortasindan kesiyor, "bozuk" gorunuyordu. */
+[data-view="grid"] .meta { max-height:3em; overflow:hidden; }
 /* aksiyonlar alt satira, yalnizca ikon */
 [data-view="grid"] .rowactions {
   grid-column:1 / -1; flex-direction:row; flex-wrap:nowrap; gap:1px;
