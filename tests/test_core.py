@@ -337,7 +337,16 @@ def test_dogrulanamayan_kaynakta_uzun_yokluk_kapatir(tmp_path):
     store.close()
 
 
-def test_kapanan_ilan_geri_gelirse_acilir(tmp_path):
+def test_kapanan_ilan_kaynakta_gorulse_de_geri_acilmaz(tmp_path):
+    """Kapatma KALICI. Eskiden bu test tam tersini pinliyordu.
+
+    Jooble kapanmis ilani gunlerce indeksinde tutuyor; "kaynak hala gosteriyor"
+    ile "ilan acik" ayni sey degil. Eski davranista upsert her taramada
+    is_active=1 yazip kapatmayi siliyordu: olculdu, 199 ilan "kapandi" bildirimi
+    almasina ragmen listede duruyordu, 24 Agustos'ta kapatilan ilan 31 Agustos'ta
+    hala aktifti. Kullanicinin gordugu "no longer available ilanlar listeden
+    dusmuyor" sikayetinin tam kaynagi buydu.
+    """
     from scanner.storage import Storage
 
     store = Storage(tmp_path / "t.db")
@@ -349,10 +358,56 @@ def test_kapanan_ilan_geri_gelirse_acilir(tmp_path):
     store.close_stale("jooble", min_streak=1)
     assert store.count() == 0
 
-    store.upsert([p])                      # kaynakta tekrar goruldu
-    assert store.count() == 1
-    assert store.count(closed_only=True) == 0
-    assert store.stats()["suspect"] == 0
+    store.upsert([p])                      # kaynak indeksinde yine goruldu
+    assert store.count() == 0               # ... ama kapali kaliyor
+    assert store.count(closed_only=True) == 1
+    # Kapali satirin son gorulme zamani yine de tazelenir (veri bayatlamasin)
+    assert store.get_by_fingerprint(p.fingerprint)["closed_at"]
+    store.close()
+
+
+def test_elle_bildirilen_kapanma_taramaya_direnir(tmp_path):
+    """Kullanicinin kendi karari en guclu sinyal: hicbir tarama onu ezemez."""
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    p = project(title="Kullanici Kapatti SAP")
+    p.source = "jooble"
+    p.fingerprint = fingerprint(p)
+    store.upsert([p])
+    store.report_closed(p.fingerprint)
+    assert store.count() == 0
+
+    store.upsert([p])
+    assert store.count() == 0
+    row = store.get_by_fingerprint(p.fingerprint)
+    assert row["is_active"] == 0
+    assert "kullanıcı bildirdi" in (row["closed_reason"] or "")
+    store.close()
+
+
+def test_api_sayaci_sifirlanmaz_azalir(tmp_path):
+    """Salinan ilan birikebilsin: bulundu -> 0 degil, -1.
+
+    Jooble olmekte olan ilani indeksine alip cikariyor (olculdu: 20:40'ta var,
+    20:49'da yok). Sifirlama sayaci 1->0->1->0 salindiriyor, esige hic
+    ulasilmiyordu.
+    """
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    p = project(title="Salinan SAP")
+    p.fingerprint = fingerprint(p)
+    store.upsert([p])
+    fp = p.fingerprint
+
+    assert store.bump_api_miss([fp])[fp] == 1
+    assert store.bump_api_miss([fp])[fp] == 2
+    store.decay_api_miss([fp])
+    assert store.get_by_fingerprint(fp)["api_miss_streak"] == 1   # sifir DEGIL
+    store.decay_api_miss([fp])
+    store.decay_api_miss([fp])
+    assert store.get_by_fingerprint(fp)["api_miss_streak"] == 0   # altina inmez
     store.close()
 
 

@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from math import ceil
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
 from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -81,6 +81,19 @@ def list_filters(min_score: int = 0, source: str = "", q: str = "", exclude: str
         flag=flag if flag in ("problem", "clean") else None,
         profile_id=profile_id,
     )
+
+
+def _sorgu_dizesi(deger: str | None) -> dict:
+    """"?mode=remote&country=DE&country=AT" -> {"mode": "remote", "country": [...]}.
+
+    `country` tekrarli parametre oldugu icin liste kalir; digerleri tek deger.
+    Verilmeyen anahtar sozlukte HIC bulunmaz - ekran_secimleri'ndeki `None`
+    kontrolu "kullanici vermedi, profil varsayilani uygulansin" demek.
+    """
+    if not deger:
+        return {}
+    ham = parse_qs(deger.lstrip("?"), keep_blank_values=True)
+    return {k: (v if k == "country" else v[-1]) for k, v in ham.items() if v}
 
 
 def _list(value: str | None) -> list[str]:
@@ -400,6 +413,59 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         response.delete_cookie(COOKIE_NAME)
         return response
 
+    def ekran_secimleri(ham: dict, view: dict | None) -> dict:
+        """Adres cubugu parametreleri + profil varsayilanlari -> normalize secimler.
+
+        Liste ile "Tumunu kontrol et" AYNI fonksiyondan gecer: onay penceresindeki
+        sayi ile listedeki sayi ayrisamaz, tur tam olarak ekranda gorulen ilanlari
+        kontrol eder. Eskiden tur filtreden bagimsizdi ve kullanici "1805 ilan"
+        yazan pencereyle 346 ilanlik listesi arasinda sikisip kaliyordu.
+        """
+        def pick(value, key, fallback):
+            if value is not None:
+                return value
+            return view.get(key, fallback) if view else fallback
+
+        def sayi(deger, varsayilan=0):
+            try:
+                return int(deger)
+            except (TypeError, ValueError):
+                return varsayilan
+
+        days = sayi(pick(ham.get("days"), "days", 0))
+        date_from = ham.get("date_from") or ""
+        date_to = ham.get("date_to") or ""
+        # tarih araligi ile "son N gun" ayni ekseni filtreliyor: aralik seciliyse o kazanir
+        if date_from or date_to:
+            days = 0
+        min_score = ham.get("min_score")
+        return {
+            "q": ham.get("q") or "",
+            # Profilde tek metin, adres cubugunda tekrarli parametre: ikisi de
+            # country_values() ile ayni listeye normalize edilir.
+            "country": country_values(pick(ham.get("country"), "country", "")),
+            "exclude": pick(ham.get("exclude"), "exclude", "") or "",
+            "source": ham.get("source") or "",
+            "mode": pick(ham.get("mode"), "mode", "") or "",
+            "sort": pick(ham.get("sort"), "sort", "score") or "score",
+            "contract": sayi(pick(ham.get("contract"), "contract", 0)),
+            "budget": sayi(pick(ham.get("budget"), "budget", 0)),
+            "days": days,
+            "min_score": default_min_score() if min_score is None else sayi(min_score),
+            "status": ham.get("status") or "",
+            "closed": sayi(ham.get("closed")),
+            "supply": sayi(ham.get("supply")),
+            "date_from": date_from,
+            "date_to": date_to,
+            "date_field": ham.get("date_field") or "",
+            "flag": ham.get("flag") or "",
+        }
+
+    def secim_filtreleri(secim: dict, pid: int) -> dict:
+        """Normalize secimler -> Storage filtreleri (sort disarida kalir)."""
+        return list_filters(profile_id=pid,
+                            **{k: v for k, v in secim.items() if k != "sort"})
+
     # --- ilan listesi ---------------------------------------------------
     @app.get("/")
     def index(request: Request, q: str = "", exclude: str | None = None, source: str = "",
@@ -422,33 +488,21 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
 
         # Etkin profil, kullanicinin ACIKCA vermedigi filtreler icin varsayilani belirler.
         # Adres cubugunda deger varsa (None degilse) kullanici kazanir.
-        def pick(value, key, fallback):
-            if value is not None:
-                return value
-            return view.get(key, fallback) if view else fallback
-
-        mode = pick(mode, "mode", "") or ""
-        # Profilde tek metin olarak duruyor, adres cubugunda tekrarli parametre:
-        # ikisi de country_values() ile ayni listeye normalize edilir.
-        country = country_values(pick(country, "country", ""))
-        exclude = pick(exclude, "exclude", "") or ""
-        sort = pick(sort, "sort", "score") or "score"
-        contract = int(pick(contract, "contract", 0) or 0)
-        budget = int(pick(budget, "budget", 0) or 0)
-        days = int(pick(days, "days", 0) or 0)
-        score = default_min_score() if min_score is None else min_score
+        secim = ekran_secimleri({
+            "q": q, "exclude": exclude, "source": source, "mode": mode, "country": country,
+            "min_score": min_score, "contract": contract, "budget": budget, "days": days,
+            "status": status, "sort": sort, "closed": closed, "supply": supply,
+            "date_from": date_from, "date_to": date_to, "date_field": date_field, "flag": flag,
+        }, view)
+        mode, country, exclude, sort = (secim["mode"], secim["country"],
+                                        secim["exclude"], secim["sort"])
+        contract, budget, days = secim["contract"], secim["budget"], secim["days"]
+        score = secim["min_score"]
 
         size = page_size()
         page = max(1, page)
-        # tarih araligi ile "son N gun" ayni ekseni filtreliyor: aralik seciliyse o kazanir
-        if date_from or date_to:
-            days = 0
 
-        filters = list_filters(
-            min_score=score, source=source, q=q, exclude=exclude, mode=mode, contract=contract,
-            budget=budget, country=country, days=days, status=status, closed=closed,
-            supply=supply, date_from=date_from, date_to=date_to, date_field=date_field,
-            flag=flag, profile_id=pid)
+        filters = secim_filtreleri(secim, pid)
 
         facets = store.country_facets(**filters)
         total = store.count(**filters)
@@ -636,26 +690,33 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         return JSONResponse({"ok": started, "scan": scheduler.snapshot()})
 
     @app.post("/api/temizlik")
-    def start_sweep(request: Request, payload: dict | None = None):
-        """TUM aktif ilanlarin linkini acip kapananlari kapatir (arka planda).
+    async def start_sweep(request: Request):
+        """EKRANDA GORUNEN ilanlarin linkini acip kapananlari kapatir (arka planda).
 
-        Ekrandaki filtre ALINMAZ. Onceden "ne goruyorsan o kontrol edilir"di ama
-        bir filtre acikken kapanan ilanlar filtre disinda kaldigi icin hic
-        kontrol edilmiyordu - kullanici bunu "kapanan ilani bazen gormuyor"
-        olarak yasiyordu. Tur basina en fazla `sweep_max` ilan bakilir; sira
-        `stale` oldugu icin ardisik turlar veritabaninin tamamini dolasir.
-
-        `payload` imzada duruyor ama okunmuyor: eski istemciler gövde gondermeye
-        devam edebilir, istek 422 vermesin.
+        Istemci adres cubugunun sorgu dizesini `query` alaninda gonderir; burada
+        liste ile AYNI fonksiyondan (ekran_secimleri) gecirilir. Boylece onay
+        penceresindeki sayi ile listedeki sayi tanim geregi ayni olur - kullanici
+        "1805 ilan taranacak" yazan pencereyle 346 ilanlik listesi arasinda
+        sikisip kalmaz. Sorgu dizesi bos gelirse profil varsayilanlari uygulanir.
         """
         _require(request, "sweep_links")
         pid = profile_of(request)
-        # Varsayilanlar tam hedef kumeyi verir: min_score=0, arama/kaynak/mod
-        # filtresi yok, `closed` verilmedigi icin yalnizca aktif ilanlar.
-        filters = list_filters(profile_id=pid)
+        try:
+            payload = await request.json()
+        except Exception:                      # noqa: BLE001 - gövdesiz eski istemci
+            payload = {}
+        ham = _sorgu_dizesi(payload.get("query") if isinstance(payload, dict) else "")
+
+        profiles = open_profiles()
+        try:
+            view = profiles.active_view()
+        finally:
+            profiles.close()
+        filters = secim_filtreleri(ekran_secimleri(ham, view), pid)
 
         user = request.state.user
-        # full=True: dugme gercekten "Tumunu" kontrol eder, sweep_max sinirini asar.
+        # full=True: kullanicinin filtreledigi kumenin TAMAMI taranir, sweep_max
+        # ve kaynak basina API siniri uygulanmaz.
         if not sweeper.start(filters, by=user.username if user else "",
                              config=state["config"], full=True):
             return JSONResponse({"ok": False, "message": "Bir kontrol zaten sürüyor.",

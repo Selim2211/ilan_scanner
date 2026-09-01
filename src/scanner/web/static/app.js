@@ -198,13 +198,13 @@
   async function startSweep() {
     sweepBtn.disabled = true;
     sweepBtn.textContent = "başlatılıyor…";
-    // Filtre GONDERILMEZ: sunucu ekrandaki filtreden bagimsiz olarak butun
-    // aktif ilanlari tarar - filtre disinda kalan kapanmis ilanlar da yakalansin.
+    // Adres cubugunun sorgu dizesi GONDERILIR: sunucu listeyle ayni filtreleri
+    // kurar, boylece "ekranda ne goruyorsan o kontrol edilir" garantisi olusur.
     try {
       const res = await fetch("/api/temizlik", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ query: window.location.search }),
       });
       const data = await res.json().catch(function () { return {}; });
       if (!res.ok && data.message && toast && toastText) {
@@ -221,9 +221,10 @@
 
   if (sweepBtn) {
     sweepBtn.addEventListener("click", function () {
-      askConfirm((sweepBtn.dataset.total || "0") + " ilanın linki tek tek açılacak, kapanmış " +
-                 "olanlar listeden düşecek. Ekrandaki filtre dikkate alınmaz. İlan sayısına göre " +
-                 "birkaç dakika sürebilir; sayfada kalabilir, istediğiniz an durdurabilirsiniz.",
+      askConfirm("Ekranda gördüğünüz " + (sweepBtn.dataset.total || "0") + " ilan tek tek " +
+                 "kontrol edilecek; kapanmış olanlar listeden düşecek ve bir daha geri " +
+                 "gelmeyecek. İlan sayısına göre birkaç dakika sürebilir; sayfada kalabilir, " +
+                 "istediğiniz an durdurabilirsiniz.",
                  "Evet, kontrol et", startSweep);
     });
   }

@@ -275,7 +275,8 @@ def _resolve_missing(storage: Storage, client: HttpClient, kept: list[Project],
                 # hicbir zaman calismiyor) supheli olan ilan sonradan neredeyse hep
                 # gercekten kapanmis cikiyor. API dogrulamasi (~%13 kacirma orani, ayrica
                 # Jooble'in kendi arama kotasini tuketiyor) beklemeden dogrudan kapatilir.
-                rows = storage.close_stale(source, suspect_after)
+                rows = storage.close_stale(source, suspect_after,
+                                           "şüpheli, doğrudan kapatıldı")
                 closed.extend(rows)
                 for row in rows:
                     log.info("kapandi (supheli, dogrudan - %s turdur listede yok): %s",
@@ -293,7 +294,8 @@ def _resolve_missing(storage: Storage, client: HttpClient, kept: list[Project],
                 log.info("%s API dogrulamasi: %s yayinda, %s kapandi, %s bilinmiyor",
                          source, yayinda, len(rows), bilinmiyor)
                 continue
-            rows = storage.close_stale(source, close_unverifiable_after)
+            rows = storage.close_stale(source, close_unverifiable_after,
+                                       "uzun süredir kaynak listesinde yok")
             closed.extend(rows)
             for row in rows:
                 log.info("kapandi (uzun suredir listede yok): %s", row["title"])
@@ -303,7 +305,7 @@ def _resolve_missing(storage: Storage, client: HttpClient, kept: list[Project],
         for row in storage.suspects(source, min_streak=suspect_after, limit=check_limit):
             verdict = _check_link(client, row["url"])
             if verdict is True:
-                storage.close_project(row["fingerprint"])
+                storage.close_project(row["fingerprint"], "link kontrolü: ilan kapanmış")
                 closed.append(row)
                 log.info("kapandi (link dogrulandi): %s", row["title"])
             elif verdict is False:
@@ -315,7 +317,8 @@ def _resolve_missing(storage: Storage, client: HttpClient, kept: list[Project],
 
         if close_after:
             # sıra kendisine hic gelmeyen, cok uzun suredir kayip ilanlar
-            rows = storage.close_stale(source, close_after)
+            rows = storage.close_stale(source, close_after,
+                                       f"{close_after} turdur kaynak listesinde yok")
             closed.extend(rows)
             for row in rows:
                 log.info("kapandi (%s turdur listede yok): %s",
@@ -398,7 +401,7 @@ def verify_with_source(storage: Storage, source, rows: list, miss_threshold: int
 
     if yayinda:
         storage.clear_missing(yayinda)      # verified_at'i da tazeler
-        storage.clear_api_miss(yayinda)
+        storage.decay_api_miss(yayinda)
     sayaclar = storage.bump_api_miss(yok)
     kapatilan = []
     for row in rows:
@@ -408,7 +411,7 @@ def verify_with_source(storage: Storage, source, rows: list, miss_threshold: int
         kayip = int((row["missing_streak"] if "missing_streak" in row.keys() else 0) or 0)
         gereken = 1 if (kayip_esigi and kayip >= kayip_esigi) else miss_threshold
         if sayaclar.get(fp, 0) >= gereken:
-            storage.close_project(fp)
+            storage.close_project(fp, f"{source.name} API'sinde artık yok")
             kapatilan.append(row)
             log.info("kapandi (%s API'sinde %s turdur yok, taramada %s turdur kayip): %s",
                      source.name, sayaclar[fp], kayip, row["title"])
@@ -548,7 +551,7 @@ def verify_active(limit: int = 50, dry_run: bool = False, min_hours: int = 12) -
                 closed += 1
                 log.info("kapanmis ilan: %s", row["title"])
                 if not dry_run:
-                    storage.close_project(row["fingerprint"])
+                    storage.close_project(row["fingerprint"], "link kontrolü: ilan kapanmış")
                     storage.add_notification("closed", row["title"], "link kapali", row["url"],
                                              row["source"], row["score"] or 0,
                                              row["work_mode"] or "", row["fingerprint"],

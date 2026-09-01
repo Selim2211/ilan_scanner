@@ -161,9 +161,10 @@ class LinkSweeper:
         client = sweep_client(config)
         try:
             if full:
-                # "Tumunu kontrol et": o an aktif olan ne kadar ilan varsa hepsi -
-                # sweep_max burada bir siralama detayi degil, sonucu eksik birakan
-                # bir sinir olurdu.
+                # "Tumunu kontrol et" EKRANDAKI filtreyi tarar (bkz. app.py
+                # start_sweep). Kullanici ne filtreledigini goruyor ve onay
+                # penceresinde ayni sayiyi okuyor; sweep_max burada sonucu eksik
+                # birakan bir sinir olurdu.
                 limit = max(limit, store.count(**filters))
             # `stale` sirasi: en uzun suredir kontrol edilmemis ilan basa gelir.
             # Tur basina `limit` ilan bakildigi icin varsayilan puan sirasiyla
@@ -172,7 +173,8 @@ class LinkSweeper:
             with self._lock:
                 self.state.total = len(rows)
             log.info("temizlik turu: %s ilan kontrol edilecek", len(rows))
-            self._sweep(store, client, rows, workers, active_profile_id(store), config)
+            self._sweep(store, client, rows, workers, active_profile_id(store), config,
+                        full=full)
         except Exception as exc:  # noqa: BLE001 - tur cokerse panel takili kalmasin
             log.exception("temizlik turu basarisiz")
             with self._lock:
@@ -190,7 +192,7 @@ class LinkSweeper:
                      durum.flagged, durum.api_checked, durum.unverified)
 
     def _sweep(self, store: Storage, client: HttpClient, rows: list, workers: int,
-               profile_id: int, config: dict) -> None:
+               profile_id: int, config: dict, full: bool = False) -> None:
         """Linkleri paralel acar, SONUCU TEK THREAD'DE yazar.
 
         SQLite tek yazar ister; kontrol I/O bekledigi icin paralellik zaten
@@ -206,9 +208,19 @@ class LinkSweeper:
                 return None
             return _inspect_link(client, row["url"])
 
-        engellenenler: list = []
+        # Linki HER ZAMAN 403 donen kaynaklarin (Jooble - Cloudflare, bkz.
+        # PROJECT.md "bilinen sinir") satirlari link kontrolune HIC gonderilmez:
+        # 1329 istek atilip sifir bilgi aliniyordu. Bu satirlar dogrudan API
+        # dogrulamasina duser. Yan fayda: "dogrulanamadi" sayaci artik gercekten
+        # karar verilemeyenleri gosteriyor (once 1316 gibi sisik cikiyordu).
+        atlanacak = set((config.get("freshness") or {}).get("verify_skip_sources") or [])
+        link_bakilacak = [r for r in rows if r["source"] not in atlanacak]
+        engellenenler: list = [r for r in rows if r["source"] in atlanacak]
+        with self._lock:
+            self.state.checked += len(engellenenler)
+
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            for row, verdict in zip(rows, pool.map(kontrol, rows)):
+            for row, verdict in zip(link_bakilacak, pool.map(kontrol, link_bakilacak)):
                 if verdict is None:
                     continue
                 if verdict.closed is None and verdict.blocked:
@@ -217,11 +229,12 @@ class LinkSweeper:
         if dogrulananlar:
             store.mark_verified(dogrulananlar)
 
-        kapananlar += self._api_dogrula(store, engellenenler, config)
+        kapananlar += self._api_dogrula(store, engellenenler, config, full=full)
         if kapananlar:
             store.add_notifications(kapananlar, profile_id=profile_id)
 
-    def _api_dogrula(self, store: Storage, rows: list, config: dict) -> list[dict]:
+    def _api_dogrula(self, store: Storage, rows: list, config: dict,
+                     full: bool = False) -> list[dict]:
         """Linki acilamayan ilanlari kaynagin API'sine sorar (Jooble).
 
         Link kontrolunden AYRI ve SERI kosar: API kotasi paralel istekle zorlanmasin.
@@ -248,7 +261,8 @@ class LinkSweeper:
                             if int(r["missing_streak"] or 0) >= suspect_after]
                     hazir_fp = {r["fingerprint"] for r in hazir}
                     for row in hazir:
-                        store.close_project(row["fingerprint"])
+                        store.close_project(row["fingerprint"],
+                                            "şüpheli, doğrudan kapatıldı")
                         kapananlar.append({
                             "kind": "closed", "fingerprint": row["fingerprint"],
                             "title": row["title"], "detail": "şüpheli, doğrudan kapatıldı",
@@ -262,7 +276,10 @@ class LinkSweeper:
                 checker = verifier_for(source, config, client)
                 if checker is None:
                     continue
-                hedef = kaynak_rows[:limit]
+                # Elle baslatilan turda kaynak basina sinir UYGULANMAZ: kume
+                # zaten kullanicinin ekranda filtreledigi kadar, kirpmak
+                # "kontrol ettim" deyip yarisina bakmak olurdu.
+                hedef = kaynak_rows if full else kaynak_rows[:limit]
                 # PARCALI islenir. Tek seferde 150 ilan sorulunca ilan basina
                 # ~1.8 sn'den ~4.5 dakika boyunca ne ilerleme cubugu kipirdiyor
                 # ne de Durdur dugmesi ise yariyordu - kullanici turun takildigini
@@ -308,7 +325,7 @@ class LinkSweeper:
 
         dogrulananlar.append(fingerprint)
         if verdict.closed:
-            store.close_project(fingerprint)
+            store.close_project(fingerprint, "link kontrolü: ilan kapanmış")
             kapananlar.append({"kind": "closed", "fingerprint": fingerprint,
                                "title": row["title"], "detail": "link kontrolü: ilan kapanmış",
                                "url": row["url"], "source": row["source"],

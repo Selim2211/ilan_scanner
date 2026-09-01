@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,8 @@ from typing import Iterable, Optional
 from .countries import (NO_COUNTRY, RESOLVER_REV, country_name, is_code, resolve_country)
 from .models import Project
 from .normalize import budget_daily, fold, infer_period, parse_budget, parse_date
+
+log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -51,6 +54,7 @@ CREATE TABLE IF NOT EXISTS projects (
     last_missing_at TEXT,                   -- listeden ilk dustugu an
     api_miss_streak INTEGER DEFAULT 0,      -- kaynak API'sinde ust uste kac kez bulunamadi
     closed_at       TEXT,
+    closed_reason   TEXT,                   -- neden kapandi: link kontrolu / API / kullanici
     verified_at     TEXT,                   -- linki en son ne zaman acilip kontrol edildi
     quality_flag    TEXT,                   -- '' / NULL = temiz, 'problem' = ilanda sikinti var
     flag_reason     TEXT,                   -- neden sorunlu: bolge kisitli, giris gerekiyor...
@@ -148,6 +152,9 @@ MIGRATIONS = {
     # yazabiliyor; filtre onun uzerinde LIKE yapinca "CA" Casablanca'yi getiriyor,
     # "Germany" ise "Deutschland" kayitlarini kaciriyordu.
     "country_code": "ALTER TABLE projects ADD COLUMN country_code TEXT",
+    # Kapanma nedeni. Kapatma artik KALICI oldugu icin (bkz. upsert) kullanicinin
+    # "bu ilan neden listemden dustu?" sorusuna cevap verecek bir iz gerekiyor.
+    "closed_reason": "ALTER TABLE projects ADD COLUMN closed_reason TEXT",
 }
 
 
@@ -263,6 +270,7 @@ class Storage:
         if "budget_daily" in added:
             self._backfill_budget()
         self._backfill_country_codes()
+        self._backfill_kapanmalar()
         self._migrate_marks()
         self.conn.commit()
 
@@ -370,6 +378,43 @@ class Storage:
         self.conn.commit()
         return len(pairs)
 
+    def _backfill_kapanmalar(self) -> int:
+        """Diriltilmis KANITLI kapanmalari geri kapatir. Tek sefer calisir.
+
+        `upsert` eskiden her taramada `is_active=1, closed_at=NULL` yaziyordu;
+        Jooble olu ilani gunlerce indeksinde tuttugu icin kapatma kararlari
+        siliniyordu (olculdu: 199 ilan "kapandi" bildirimi almasina ragmen
+        aktifti). Artik upsert diriltmiyor, ama gecmiste diriltilmis olanlar
+        duruyor. Burada YALNIZCA kaniti olanlar geri kapatilir:
+          - kullanici linke tiklayip "Kapandi" dedi
+          - link kontrolu 404 / "no longer available" gordu
+        Zayif sinyalle ("API'sinde yok", "kaynaktan kalkti") kapanmis olanlara
+        DOKUNULMAZ: onlar tasarim geregi geri acilmisti, bir sonraki kontrol
+        turu gerekirse yeniden kapatir - ve bu kez kapanma kalici olur.
+        """
+        if self.conn.execute(
+                "SELECT 1 FROM meta WHERE key = 'kapanmalar_geri_dolduruldu'").fetchone():
+            return 0
+        # Her ilan icin EN SON kapanma bildirimi: ilan defalarca kapanip
+        # acilmis olabilir, son karar gecerlidir.
+        rows = list(self.conn.execute(
+            "SELECT p.fingerprint, n.detail, n.created_at FROM projects p "
+            "JOIN notifications n ON n.fingerprint = p.fingerprint AND n.kind = 'closed' "
+            "WHERE p.is_active = 1 AND n.id = ("
+            "  SELECT MAX(x.id) FROM notifications x "
+            "  WHERE x.fingerprint = p.fingerprint AND x.kind = 'closed')"))
+        kanitli = [(r["created_at"], r["detail"], r["fingerprint"]) for r in rows
+                   if "kullanıcı bildirdi" in (r["detail"] or "")
+                   or "link kontrol" in (r["detail"] or "")
+                   or (r["detail"] or "") == "link kapali"]
+        self.conn.executemany(
+            "UPDATE projects SET is_active = 0, closed_at = ?, closed_reason = ? "
+            "WHERE fingerprint = ? AND is_active = 1", kanitli)
+        self._set_meta("kapanmalar_geri_dolduruldu", _now())
+        if kanitli:
+            log.info("geri doldurma: %s kanitli kapanma yeniden kapatildi", len(kanitli))
+        return len(kanitli)
+
     def _set_meta(self, key: str, value: str) -> None:
         self.conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
         self.conn.commit()
@@ -397,7 +442,17 @@ class Storage:
                         "search_text=?, skills=?, work_mode=?, remote_percent=?, engagement=?, "
                         "is_contract=?, duration=?, starts_at=?, budget_raw=?, budget_amount=?, "
                         "budget_daily=?, posted_at=?, country_code=?, "
-                        "is_active=1, missing_streak=0, last_missing_at=NULL, closed_at=NULL, "
+                        # KAPANMA KARARI EZILMEZ. Eskiden burada kosulsuz
+                        # "is_active=1, closed_at=NULL" vardi: Jooble olu ilani
+                        # GUNLERCE indeksinde tuttugu icin ilan her taramada geri
+                        # geliyor, kapatma karari siliniyor, sistem tekrar
+                        # kapatiyor... sonsuz dongu. Olculdu: 199 ilan "kapandi"
+                        # bildirimi almasina ragmen aktifti, 24 Agustos'ta
+                        # kapatilan ilan 31 Agustos'ta hala listedeydi.
+                        # "Kaynak hala gosteriyor" != "ilan acik".
+                        # Kapali satirin missing_streak'i de sifirlanmaz - anlamsiz.
+                        "missing_streak = CASE WHEN is_active = 1 THEN 0 ELSE missing_streak END, "
+                        "last_missing_at = CASE WHEN is_active = 1 THEN NULL ELSE last_missing_at END, "
                         "description = CASE WHEN length(?) > length(COALESCE(description, '')) "
                         "THEN ? ELSE description END WHERE fingerprint = ?",
                         (now, project.score, json.dumps(project.keywords_hit, ensure_ascii=False),
@@ -483,10 +538,18 @@ class Storage:
             f"WHERE fingerprint IN ({placeholders})", fps)
         return {row["fingerprint"]: row["api_miss_streak"] or 0 for row in rows}
 
-    def clear_api_miss(self, fingerprints: Iterable[str]) -> None:
-        """API'de gorulen ilan yayindadir: sayac sifirlanir."""
-        self.conn.executemany("UPDATE projects SET api_miss_streak = 0 WHERE fingerprint = ?",
-                              [(fp,) for fp in fingerprints])
+    def decay_api_miss(self, fingerprints: Iterable[str]) -> None:
+        """API'de gorulen ilan icin sayaci SIFIRLAMAZ, 1 azaltir.
+
+        Sifirlamak olmekte olan ilani olumsuz kiliyordu: Jooble kapanan ilani
+        indeksine alip cikariyor (olculdu: 20:40'ta var, 20:49'da yok), sayac
+        1 -> 0 -> 1 -> 0 salinip esige hic ulasmiyordu. Azaltmayla salinan ilan
+        birikip kapaniyor; gercekten yayinda olan ilan neredeyse hep "bulundu"
+        aldigi icin zaten 0'da kaliyor.
+        """
+        self.conn.executemany(
+            "UPDATE projects SET api_miss_streak = MAX(0, COALESCE(api_miss_streak, 0) - 1) "
+            "WHERE fingerprint = ?", [(fp,) for fp in fingerprints])
         self.conn.commit()
 
     def clear_missing(self, fingerprints: Iterable[str]) -> None:
@@ -496,16 +559,17 @@ class Storage:
             "WHERE fingerprint = ?", [(_now(), fp) for fp in fingerprints])
         self.conn.commit()
 
-    def close_stale(self, source: str, min_streak: int) -> list[sqlite3.Row]:
+    def close_stale(self, source: str, min_streak: int, reason: str = "") -> list[sqlite3.Row]:
         """Link kontrolu yapilamayan kaynaklarda son care: uzun sure gorulmeyeni kapat."""
         rows = list(self.conn.execute(
             "SELECT * FROM projects WHERE source = ? AND is_active = 1 AND missing_streak >= ?",
             (source, min_streak)))
         if rows:
             self.conn.execute(
-                "UPDATE projects SET is_active = 0, closed_at = ? "
+                "UPDATE projects SET is_active = 0, closed_at = ?, closed_reason = ? "
                 "WHERE source = ? AND is_active = 1 AND missing_streak >= ?",
-                (_now(), source, min_streak))
+                (_now(), reason or f"{source} listesinde {min_streak} turdur yok",
+                 source, min_streak))
             self.conn.commit()
         return rows
 
@@ -539,10 +603,15 @@ class Storage:
                               [(now, fp) for fp in fingerprints])
         self.conn.commit()
 
-    def close_project(self, fingerprint: str) -> None:
+    def close_project(self, fingerprint: str, reason: str = "") -> None:
+        """Ilani kapatir. Kapatma KALICIDIR - `upsert` bunu geri almaz.
+
+        `reason` panelde "bu ilan neden listemden dustu?" sorusuna cevap verir.
+        """
         self.conn.execute(
-            "UPDATE projects SET is_active = 0, closed_at = ? WHERE fingerprint = ?",
-            (_now(), fingerprint))
+            "UPDATE projects SET is_active = 0, closed_at = ?, closed_reason = ? "
+            "WHERE fingerprint = ?",
+            (_now(), reason or None, fingerprint))
         self.conn.commit()
 
     def get_by_fingerprint(self, fingerprint: str) -> sqlite3.Row | None:
@@ -580,7 +649,8 @@ class Storage:
         row = self.get_by_fingerprint(fingerprint)
         if row is None or row["is_active"] == 0:
             return None
-        self.close_project(fingerprint)
+        # Ayni metin hem kolona hem bildirime gider: tek kaynak.
+        self.close_project(fingerprint, "kullanıcı bildirdi: artık aktif değil")
         self.add_notification("closed", row["title"], "kullanıcı bildirdi: artık aktif değil",
                               row["url"], row["source"], row["score"] or 0,
                               row["work_mode"] or "", fingerprint, profile_id=profile_id)

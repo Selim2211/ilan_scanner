@@ -361,12 +361,12 @@ def test_temizlik_ikinci_istek_reddedilir(client, monkeypatch):
     finally:
         engel.set()
 
-def test_temizlik_ekrandaki_filtreyi_yok_sayar(client, monkeypatch):
-    """Tur, gonderilen filtreye BAKMADAN butun aktif ilanlari tarar.
+def test_temizlik_ekrandaki_filtreyi_kullanir(client, monkeypatch):
+    """Tur, adres cubugundaki filtrenin AYNISINI tarar.
 
-    Eskiden ekrandaki filtre neyse o taranirdi; bir filtre acikken kapanan
-    ilanlar filtre disinda kaldigi icin hic kontrol edilmiyor, kullanici da
-    "kapanan ilani bazen gormuyor" diye yasiyordu.
+    Onay penceresi "ekranda gordugun N ilan kontrol edilecek" diyor; sunucu
+    baska bir kume tararsa bu yalan olur. Kullanici tam bunu yasadi: pencere
+    1805 derken listesinde 346 ilan vardi.
     """
     import scanner.web.app as app_mod
 
@@ -374,14 +374,31 @@ def test_temizlik_ekrandaki_filtreyi_yok_sayar(client, monkeypatch):
 
     def yakala(self, filters, by="", config=None, full=False):
         yakalanan.update(filters)
+        yakalanan["_full"] = full
         return True
 
     monkeypatch.setattr(app_mod.LinkSweeper, "start", yakala)
-    # Hicbir ilani eslemeyecek bir filtre gonderiliyor:
-    client.post("/api/temizlik", json={"min_score": "999", "q": "boyleBirSeyYok",
-                                       "source": "olmayan-kaynak"})
+    client.post("/api/temizlik",
+                json={"query": "?min_score=40&source=jooble&country=DE&country=AT"})
 
-    assert yakalanan["min_score"] == 0
+    assert yakalanan["min_score"] == 40
+    assert yakalanan["source"] == "jooble"
+    assert yakalanan["country"] == ["DE", "AT"]      # tekrarli parametre korunur
+    assert yakalanan["_full"] is True                 # kume tam taranir, kirpilmaz
+
+
+def test_temizlik_bos_sorgu_ile_profil_varsayilanina_duser(client, monkeypatch):
+    """Gövdesiz/bos istek (eski istemci) 422 vermemeli, tur yine calismali."""
+    import scanner.web.app as app_mod
+
+    yakalanan: dict = {}
+    monkeypatch.setattr(app_mod.LinkSweeper, "start",
+                        lambda self, filters, by="", config=None, full=False:
+                        (yakalanan.update(filters), True)[1])
+    cevap = client.post("/api/temizlik")
+    assert cevap.status_code == 200
+    assert yakalanan["closed_only"] is False          # yalnizca aktif ilanlar
+    assert yakalanan["source"] is None                # kaynak filtresi yok
     assert yakalanan["search"] is None
     assert yakalanan["source"] is None
     # `closed` verilmez: Storage varsayilani yalnizca aktif ilanlari getirir.

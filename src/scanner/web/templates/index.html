@@ -251,10 +251,10 @@
     Veritabanı tazeliği: <b>{{ stats.last_seen | since or "-" }}</b>
     {% if scan and scan.enabled %} · otomatik tarama her {{ scan.interval_minutes }} dk{% endif %}
     {# Liste DB'den okunur: bir ilanin kapandigini ancak linki acilinca ogreniriz. #}
-    {% if stats.active and not filters.closed and can('sweep_links') %}
+    {% if total and not filters.closed and can('sweep_links') %}
     <button class="btn btn-sm" id="sweep-now" type="button"
-            data-total="{{ stats.active }}"
-            title="Ekrandaki filtreden bağımsız: şu an aktif olan {{ stats.active }} ilanın linkini tek tek açar, kapananları listeden düşürür.">
+            data-total="{{ total }}"
+            title="Ekranda görünen {{ total }} ilanın linkini tek tek açar, kapananları kalıcı olarak listeden düşürür. Farklı bir küme taramak için önce filtreyi değiştirin.">
       Tümünü kontrol et
     </button>
     <button class="btn btn-sm" id="sweep-cancel" type="button" hidden>Durdur</button>
