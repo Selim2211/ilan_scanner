@@ -641,6 +641,15 @@ code {
 .settings-intro { padding:18px 20px; margin-bottom:16px; }
 .settings-intro h1 { font:700 22px/1.2 var(--font-display); margin:0 0 6px; }
 .settings-intro p { margin:0; color:var(--ink-2); font-size:13.5px; line-height:1.6; }
+
+/* Dikkat cekmesi gereken ama hata olmayan bilgi (orn. duz metin anahtar uyarisi) */
+.settings-warn {
+  margin:0 0 14px; padding:11px 14px; border-radius:var(--r-md);
+  border:1px solid var(--amber); background:var(--amber-soft);
+  color:var(--ink-2); font-size:13px; line-height:1.6;
+}
+.settings-warn b { color:var(--ink); }
+.settings-warn code { word-break:break-all; }
 .settings-intro code,
 .settings-card code { font:500 12px/1.4 var(--font-mono); color:var(--ink); word-break:break-all; }
 

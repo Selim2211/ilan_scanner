@@ -16,3 +16,9 @@ output/
 .ruff_cache/
 *.tar
 *.zip
+
+# API anahtarlarinin sifreli deposu ve COZME ANAHTARI.
+# secret.key repoya girerse sifreleme tamamen anlamsizlasir.
+secrets.db
+secret.key
+*.key

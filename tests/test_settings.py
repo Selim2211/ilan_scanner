@@ -74,49 +74,100 @@ def test_save_overlay_onceki_icerigi_korur(overlay):
     assert data["auto_scan"]["enabled"] is False
 
 
-# --- .env ------------------------------------------------------------
-def test_save_env_yorumlari_korur_ve_ortami_tazeler(overlay, monkeypatch):
-    path = config_mod.env_path()
-    path.write_text("# anahtarlar\nJOOBLE_API_KEY=eski\nREED_API_KEY=kalsin\n", encoding="utf-8")
-    monkeypatch.setenv("JOOBLE_API_KEY", "eski")
-
-    config_mod.save_env({"JOOBLE_API_KEY": "yeni", "CAREERJET_AFFID": "abc"})
-
-    lines = path.read_text(encoding="utf-8").splitlines()
-    assert lines[0] == "# anahtarlar"
-    assert "JOOBLE_API_KEY=yeni" in lines
-    assert "REED_API_KEY=kalsin" in lines      # dokunulmayan anahtar korunur
-    assert "CAREERJET_AFFID=abc" in lines      # yeni anahtar eklenir
-    # setdefault sorunu: calisan surec yeni anahtari hemen gormeli
+# --- sifreli anahtar deposu ------------------------------------------
+def test_anahtar_diske_duz_metin_yazilmaz(overlay, monkeypatch):
+    """Asil istek: anahtar veritabaninda SIFRELI dursun, duz metin gorunmesin."""
     import os
-    assert os.environ["JOOBLE_API_KEY"] == "yeni"
+
+    from scanner import secrets_store
+
+    config_mod.save_env({"JOOBLE_API_KEY": "cok-gizli-anahtar"})
+
+    ham = secrets_store.db_path().read_bytes()
+    assert b"cok-gizli-anahtar" not in ham          # dosyada duz metin YOK
+    assert secrets_store.load_all()["JOOBLE_API_KEY"] == "cok-gizli-anahtar"
+    # setdefault tuzagi: calisan surec yeni anahtari hemen gormeli
+    assert os.environ["JOOBLE_API_KEY"] == "cok-gizli-anahtar"
 
 
-def test_save_env_bos_deger_anahtari_siler(overlay, monkeypatch):
-    path = config_mod.env_path()
-    path.write_text("REED_API_KEY=silinecek\n", encoding="utf-8")
-    monkeypatch.setenv("REED_API_KEY", "silinecek")
-
-    config_mod.save_env({"REED_API_KEY": ""})
-
+def test_anahtar_degistirilebilir_ve_silinebilir(overlay, monkeypatch):
+    """Kullanici "anahtari yarin obur gun degistirecegiz" dedi: akis calismali."""
     import os
-    assert "REED_API_KEY" not in path.read_text(encoding="utf-8")
+
+    from scanner import secrets_store
+
+    config_mod.save_env({"REED_API_KEY": "birinci"})
+    config_mod.save_env({"REED_API_KEY": "ikinci"})
+    assert secrets_store.load_all()["REED_API_KEY"] == "ikinci"
+
+    config_mod.save_env({"REED_API_KEY": ""})       # bos deger = sil
+    assert "REED_API_KEY" not in secrets_store.load_all()
     assert os.environ.get("REED_API_KEY") is None
 
 
+def test_env_dosyasindaki_anahtarlar_sifreli_depoya_tasinir(overlay, monkeypatch):
+    """Mevcut kurulumlar ve anahtari imaja gomulu Docker paketi bozulmamali."""
+    from scanner import secrets_store
+
+    config_mod.env_path().write_text("# anahtarlar\nJOOBLE_API_KEY=dosyadan\n",
+                                     encoding="utf-8")
+    monkeypatch.delenv("JOOBLE_API_KEY", raising=False)
+
+    config_mod._load_dotenv()
+
+    assert secrets_store.load_all()["JOOBLE_API_KEY"] == "dosyadan"
+
+
+def test_panelden_girilen_anahtar_eski_env_satirini_ezmez(overlay, monkeypatch):
+    """Sifreli depo `.env`den ONCE okunmali - yoksa kurulumdan kalma eski
+    satir, panelden girilen guncel anahtari geri getirirdi."""
+    import os
+
+    config_mod.env_path().write_text("JOOBLE_API_KEY=eski\n", encoding="utf-8")
+    config_mod.save_env({"JOOBLE_API_KEY": "panelden-yeni"})
+    monkeypatch.delenv("JOOBLE_API_KEY", raising=False)
+
+    config_mod._load_dotenv()
+
+    assert os.environ["JOOBLE_API_KEY"] == "panelden-yeni"
+
+
+def test_gercek_ortam_degiskeni_depoyu_ezer(overlay, monkeypatch):
+    """systemd / docker -e ile verilen deger her seyin onunde kalmali."""
+    import os
+
+    config_mod.save_env({"REED_API_KEY": "depodan"})
+    monkeypatch.setenv("REED_API_KEY", "ortamdan")
+
+    config_mod._load_dotenv()
+
+    assert os.environ["REED_API_KEY"] == "ortamdan"
+
+
+def test_cozme_anahtari_kaybolursa_panel_ayakta_kalir(overlay, monkeypatch):
+    """secret.key silinirse degerler cozulemez ama uygulama COKMEZ."""
+    from scanner import secrets_store
+
+    config_mod.save_env({"REED_API_KEY": "gizli"})
+    secrets_store.key_path().unlink()               # anahtar kayboldu
+
+    assert secrets_store.load_all() == {}           # sessizce bos doner
+
+
 # --- maskeleme / temizleme -------------------------------------------
-@pytest.mark.parametrize("value,beklenen", [
-    ("", "tanimsiz"), (None, "tanimsiz"), ("kisa", "••••"),
-])
-def test_mask_kisa_ve_bos(value, beklenen):
-    assert settings.mask(value) == beklenen
+@pytest.mark.parametrize("value", ["", None])
+def test_mask_bos_deger(value):
+    assert settings.mask(value) == "tanımsız"
 
 
-def test_mask_tam_degeri_asla_dondurmez():
-    gizli = "abcdef123456"
+@pytest.mark.parametrize("gizli", ["kisa", "abcdef123456", "9441407c-49e5-4519-8f8f"])
+def test_mask_hicbir_karakter_sizdirmaz(gizli):
+    """Eskiden ilk 2 + son 2 karakter aciktaydi (`ab••••••56`); artik yalnizca yildiz."""
     maskeli = settings.mask(gizli)
+    assert set(maskeli) == {"*"}
     assert gizli not in maskeli
-    assert maskeli.startswith("ab") and maskeli.endswith("56")
+    # Uzunluk da bilgi sizdirir: maske her anahtar icin AYNI uzunlukta olmali
+    assert maskeli == settings.mask("bambaska-uzunlukta-bir-anahtar")
 
 
 def test_scrub_anahtari_hata_mesajindan_siler(monkeypatch):

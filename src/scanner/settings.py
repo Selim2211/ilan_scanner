@@ -17,14 +17,21 @@ _HIDDEN_OPTIONS = {"enabled", "queries", "keywords", "skill_ids", "countries", "
                    "kind", "url", "items_path", "fields", "title", "notes", "site_url", "name"}
 
 
+#: Maskede gosterilen sabit yildiz sayisi. Gercek uzunlugu YANSITMAZ:
+#: uzunluk da anahtar hakkinda bilgi sizdirir (hangi servisin anahtari,
+#: kac karakter denenecegi...).
+MASKE = "*" * 12
+
+
 def mask(value: str | None) -> str:
-    """Anahtari tarayiciya gostermeden once maskeler; tam deger asla donmez."""
+    """Anahtari tarayiciya gostermeden once maskeler; tam deger asla donmez.
+
+    Eskiden ilk 2 ve son 2 karakter aciktaydi (`d8••••••11`). Ekran goruntusu
+    ya da omuz sorfu ile bu parcalar sizabiliyordu; artik hicbir karakter
+    gosterilmiyor - yalnizca "kayitli mi, degil mi" bilgisi.
+    """
     value = (value or "").strip()
-    if not value:
-        return "tanimsiz"
-    if len(value) <= 6:
-        return "•" * 4
-    return f"{value[:2]}{'•' * 6}{value[-2:]}"
+    return MASKE if value else "tanımsız"
 
 
 def secret_values() -> list[str]:
@@ -47,6 +54,36 @@ def scrub(text: str) -> str:
     return text
 
 
+def duz_metin_durumu() -> dict[str, Any]:
+    """Ayarlar ekranindaki "hala duz metin" uyarisi icin veri.
+
+    Anahtarlar artik sifreli depoda; ama kurulumdan kalma `.env` dosyasi hala
+    duz metin kopyayi tasiyor olabilir. Dosyayi KENDILIGINDEN silmiyoruz:
+    Docker paketleme betigi (tools/paket_docker.ps1) ayni dosyayi tohum olarak
+    kullaniyor. Silme karari kullanicinin.
+    """
+    from .config import env_path
+
+    from . import secrets_store
+
+    ortak = {"secrets_file": str(secrets_store.db_path()),
+             "secret_key_file": str(secrets_store.key_path())}
+    yol = env_path()
+    if not yol.exists():
+        return {**ortak, "duz_metin_anahtarlar": 0, "env_dosyasi": ""}
+    gizli = {var.name for cls in REGISTRY.values() for var in cls.env_requirements()}
+    gizli.add("GEMINI_API_KEY")
+    sayi = 0
+    for satir in yol.read_text(encoding="utf-8").splitlines():
+        satir = satir.strip()
+        if not satir or satir.startswith("#") or "=" not in satir:
+            continue
+        ad, _, deger = satir.partition("=")
+        if ad.strip() in gizli and deger.strip():
+            sayi += 1
+    return {**ortak, "duz_metin_anahtarlar": sayi, "env_dosyasi": str(yol)}
+
+
 def env_state(config: dict | None = None) -> list[dict[str, Any]]:
     """Tum kaynak anahtarlarinin durumu: tanimli mi, maskesi ne."""
     seen: dict[str, dict[str, Any]] = {}
@@ -60,7 +97,7 @@ def env_state(config: dict | None = None) -> list[dict[str, Any]]:
             row["sources"].append(name)
     for row in seen.values():
         row["is_set"] = bool(row["value"])
-        row["masked"] = mask(row["value"]) if row["secret"] else (row["value"] or "tanimsiz")
+        row["masked"] = mask(row["value"]) if row["secret"] else (row["value"] or "tanımsız")
         del row["value"]
     return list(seen.values())
 
@@ -71,7 +108,7 @@ def _catalog_row(name: str, cls, options: dict) -> dict[str, Any]:
         value = os.environ.get(var.name, "").strip()
         env_vars.append({"name": var.name, "label": var.label, "required": var.required,
                          "secret": var.secret, "is_set": bool(value),
-                         "masked": mask(value) if var.secret else (value or "tanimsiz")})
+                         "masked": mask(value) if var.secret else (value or "tanımsız")})
     missing = [v["name"] for v in env_vars if v["required"] and not v["is_set"]]
     lists = {key: list(options.get(key) or []) for key in cls.list_options}
     custom = is_custom(options)

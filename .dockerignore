@@ -42,3 +42,8 @@ tests/
 .claude/
 *.md
 !requirements.txt
+
+# Sifreli anahtar deposu ve cozme anahtari imaja GIRMEZ: her kurulum kendi
+# anahtarini uretir. Imaja gomulu anahtarlar .env uzerinden gelir (yukari bkz).
+secrets.db
+secret.key

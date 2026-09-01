@@ -12,6 +12,8 @@ jinja2>=3.1
 # temiz kurulumda (Docker) panel aciliyor ama her form 500 veriyor.
 python-multipart>=0.0.9
 python-dotenv>=1.0
+# API anahtarlari veritabaninda sifreli saklaniyor (secrets_store.py, Fernet).
+cryptography>=42.0
 pystray>=0.19
 pillow>=10.3
 pytest>=8.2

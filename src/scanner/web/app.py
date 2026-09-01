@@ -820,6 +820,9 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
                 "request": request,
                 "catalog": settings_mod.source_catalog(config),
                 "env_rows": settings_mod.env_state(config),
+                # Anahtarlar sifreli depoda; duz metin kopya hala duruyorsa
+                # kullanici bilsin ve silmeyi kendi secsin.
+                **settings_mod.duz_metin_durumu(),
                 "auto": config.get("auto_scan") or {},
                 "panel": config.get("panel") or {},
                 "ai": config.get("ai") or {},

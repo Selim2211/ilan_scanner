@@ -7,6 +7,7 @@ sirasinda taban uzerine derin birlestirilir.
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,8 @@ from typing import Any
 import yaml
 
 from . import paths
+
+log = logging.getLogger(__name__)
 
 #: Salt okunur kaynaklarin koku (paketlenmis exe'de pakete isaret eder)
 ROOT = paths.bundle_dir()
@@ -140,39 +143,22 @@ def env_path() -> Path:
     return paths.data_dir() / ".env"
 
 
-def save_env(values: dict[str, str]) -> Path:
-    """Anahtarlari .env'e yazar; satir sirasi ve yorumlar korunur.
+def save_env(values: dict[str, str]) -> None:
+    """Anahtarlari SIFRELI depoya yazar ve calisan surecin ortamini tazeler.
 
-    Bos deger verilen anahtarin satiri silinir. Yazdiktan sonra calisan surecin
-    ortamini da tazeler - yoksa yeni anahtar ancak yeniden baslatinca gorulurdu.
+    Eskiden duz metin `.env` dosyasina yazilirdi; artik anahtarlar sifreli
+    saklaniyor (secrets_store) ve `.env` yalnizca ilk kurulumda tohum olarak
+    OKUNUR, yazilmaz. Ortam tazelenmezse yeni anahtar ancak yeniden baslatinca
+    gorulurdu. Bos deger = anahtari sil.
     """
-    path = env_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    remaining = dict(values)
-    out: list[str] = []
-    for line in lines:
-        key = line.partition("=")[0].strip()
-        if not line.strip() or line.lstrip().startswith("#") or "=" not in line or key not in remaining:
-            out.append(line)
-            continue
-        value = remaining.pop(key)
-        if value:                      # bos deger = anahtari kaldir
-            out.append(f"{key}={value}")
-    for key, value in remaining.items():
-        if value:
-            out.append(f"{key}={value}")
+    from . import secrets_store
 
-    tmp = path.with_suffix(".env.tmp")
-    tmp.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
-    os.replace(tmp, path)
-
+    secrets_store.save(values)
     for key, value in values.items():
         if value:
             os.environ[key] = value
         else:
             os.environ.pop(key, None)
-    return path
 
 
 def _load_dotenv(force: bool = False) -> None:
@@ -183,7 +169,22 @@ def _load_dotenv(force: bool = False) -> None:
 
     `force=True` dosyadaki degeri surecte zaten tanimli olanin uzerine yazar;
     varsayilan `False` gercek ortam degiskenlerinin (systemd, CI) onceligini korur.
+
+    Oncelik: gercek ortam degiskeni > SIFRELI depo > .env dosyalari > gomulu.
+    Sifreli depo dosyalardan ONCE okunuyor: panelden girilen guncel anahtari,
+    kurulumdan kalma eski bir `.env` satiri ezmesin.
     """
+    from . import secrets_store
+
+    for key, value in secrets_store.load_all().items():
+        if not value:
+            continue
+        if force:
+            os.environ[key] = value
+        else:
+            os.environ.setdefault(key, value)
+
+    dosyadan: dict[str, str] = {}
     for env_file in (paths.data_dir() / ".env", ROOT / ".env"):
         if not env_file.exists():
             continue
@@ -192,10 +193,21 @@ def _load_dotenv(force: bool = False) -> None:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip()
+            dosyadan.setdefault(key, value)
             if force:
-                os.environ[key.strip()] = value.strip()
+                os.environ[key] = value
             else:
-                os.environ.setdefault(key.strip(), value.strip())
+                os.environ.setdefault(key, value)
+
+    # Duz metinden okunanlar sifreli depoya BIR KEZ tasinir: mevcut kurulumlar
+    # ve anahtari imaja gomulu Docker paketi panelde yeniden anahtar girmek
+    # zorunda kalmasin. Depoda zaten olan anahtar EZILMEZ (bkz. seed_from_env_file).
+    if dosyadan:
+        try:
+            secrets_store.seed_from_env_file(dosyadan)
+        except Exception as hata:            # noqa: BLE001 - tohumlama kritik degil
+            log.warning("anahtarlar sifreli depoya tasinamadi: %s", hata)
 
     try:
         from ._embedded_env import EMBEDDED_ENV     # derleme sirasinda uretilir
