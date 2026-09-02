@@ -35,6 +35,42 @@ MAX_KARAKTER = 6000
 
 VARSAYILAN_MODEL = "gemini-3.5-flash-lite"
 
+#: Model basina yaklasik ucret - 1 MILYON token icin USD (girdi, cikti).
+#: Kaynak: Google Gemini API fiyat listesi. Google fiyati degistirirse ya da
+#: burada olmayan bir model kullanilirsa `VARSAYILAN_FIYAT` devreye girer.
+#: Maliyet ekrani (Ayarlar > Yapay zeka > Maliyet) bu tabloyu kullanir.
+FIYATLAR: dict[str, tuple[float, float]] = {
+    "gemini-3.5-flash-lite": (0.10, 0.40),
+    "gemini-2.5-flash-lite": (0.10, 0.40),
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-pro": (1.25, 10.00),
+    "gemini-2.0-flash-lite": (0.075, 0.30),
+    "gemini-2.0-flash": (0.10, 0.40),
+    "gemini-1.5-flash": (0.075, 0.30),
+    "gemini-1.5-flash-8b": (0.0375, 0.15),
+}
+VARSAYILAN_FIYAT: tuple[float, float] = (0.10, 0.40)
+
+
+def _model_kok(model: str) -> str:
+    """'models/gemini-2.5-flash-lite-preview-06' -> 'gemini-2.5-flash-lite'."""
+    ad = (model or "").strip().lower().removeprefix("models/")
+    for bilinen in FIYATLAR:
+        if ad == bilinen or ad.startswith(bilinen + "-"):
+            return bilinen
+    return ad
+
+
+def fiyat(model: str) -> tuple[float, float]:
+    """Modelin (girdi, cikti) 1M token USD ucreti; bilinmiyorsa varsayilan."""
+    return FIYATLAR.get(_model_kok(model), VARSAYILAN_FIYAT)
+
+
+def maliyet_usd(model: str, girdi_token: int, cikti_token: int) -> float:
+    """Bir cagrinin USD maliyeti."""
+    giris, cikis = fiyat(model)
+    return (girdi_token or 0) / 1_000_000 * giris + (cikti_token or 0) / 1_000_000 * cikis
+
 #: Cikti sekli sunucu tarafinda garanti altina aliniyor (responseSchema), boylece
 #: serbest metinden madde ayiklamaya calismak gerekmiyor.
 SEMA = {
@@ -73,7 +109,10 @@ def ozetle(baslik: str, aciklama: str, *, anahtar: str,
            model: str = VARSAYILAN_MODEL, zaman_asimi: float = 30.0) -> dict | None:
     """Ilani ozetler. Basarisiz olursa None doner - cagiran eski davranisa doner.
 
-    Donen sozluk: {"summary": str, "must_haves": list[str]}
+    Donen sozluk: {"summary": str, "must_haves": list[str],
+                   "prompt_tokens": int, "output_tokens": int}
+    Token sayilari maliyet ekrani icin - Gemini `usageMetadata` alanindan gelir,
+    eksikse 0 kalir.
 
     Hicbir hata yukari firlatilmaz: ozet kozmetik bir zenginlestirme, panelin
     calismasi buna bagli degil. Anahtar yanlis, kota dolmus ya da ag kopmus
@@ -117,7 +156,14 @@ def ozetle(baslik: str, aciklama: str, *, anahtar: str,
     kosullar = [str(k).strip() for k in (icerik.get("must_haves") or []) if str(k).strip()]
     if not ozet:
         return None
-    return {"summary": ozet, "must_haves": kosullar}
+
+    kullanim = veri.get("usageMetadata") or {}
+    girdi = int(kullanim.get("promptTokenCount") or 0)
+    # `thoughtsTokenCount` (varsa) cikti gibi ucretlendirilir.
+    cikti = int(kullanim.get("candidatesTokenCount") or 0) + \
+        int(kullanim.get("thoughtsTokenCount") or 0)
+    return {"summary": ozet, "must_haves": kosullar,
+            "prompt_tokens": girdi, "output_tokens": cikti}
 
 
 def ayarlar(config: dict) -> tuple[bool, str, int, float]:

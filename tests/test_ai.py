@@ -138,7 +138,9 @@ def test_kosullar_temizlenir(monkeypatch):
     assert ozetle("Baslik", "Aciklama", anahtar=ANAHTAR)["must_haves"] == ["a", "b"]
 
     yamala(monkeypatch, gemini_yaniti({"summary": "Ozet", "must_haves": []}))
-    assert ozetle("Baslik", "Aciklama", anahtar=ANAHTAR) == {"summary": "Ozet", "must_haves": []}
+    sonuc = ozetle("Baslik", "Aciklama", anahtar=ANAHTAR)
+    assert sonuc["summary"] == "Ozet"
+    assert sonuc["must_haves"] == []
 
 
 def test_ayarlar_okuma():

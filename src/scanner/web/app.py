@@ -33,7 +33,7 @@ from ..config import (env_path, keywords_overlay_path, load_base_config, load_ba
                       load_config, load_keywords, overlay_path, resolve_path, save_env,
                       save_overlay)
 from ..countries import group_by_region
-from ..normalize import fold
+from ..normalize import DEFAULT_RATES, fold
 from ..pipeline import rescore_all
 from ..probe import probe_source
 from ..sweep import LinkSweeper, sweep_settings
@@ -235,6 +235,12 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
 
     def currency_rates() -> dict | None:
         return (state["config"].get("panel") or {}).get("currency_rates")
+
+    def try_per_usd() -> float:
+        """1 USD kac TL. Kur tablosu TRY icin USD-birim degeri tutuyor (0.03),
+        maliyet ekrani icin tersi gerekiyor."""
+        rate = (currency_rates() or {}).get("TRY") or DEFAULT_RATES.get("TRY") or 0.03
+        return 1.0 / rate if rate else 0.0
 
     def open_store() -> Storage:
         return Storage(db_path, rates=currency_rates())
@@ -626,6 +632,10 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
                 if sonuc:
                     store.save_ai_summary(fingerprint, sonuc["summary"],
                                           sonuc["must_haves"], model)
+                    gt = int(sonuc.get("prompt_tokens") or 0)
+                    ct = int(sonuc.get("output_tokens") or 0)
+                    store.record_ai_usage(model, gt, ct,
+                                          ai_mod.maliyet_usd(model, gt, ct), fingerprint)
                     return JSONResponse({"ok": True, "title": baslik,
                                          "summary": sonuc["summary"],
                                          "requirements": sonuc["must_haves"],
@@ -1126,6 +1136,40 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
 
         reload_config()
         return settings_redirect("yapayzeka", ok="Yapay zeka ayarları kaydedildi.")
+
+    @app.get("/ayarlar/maliyet")
+    def ai_cost_page(request: Request):
+        """Yapay zeka maliyet ekrani: model x dönem token + TL tablosu."""
+        _require(request, "edit_ai")
+        reload_config()
+        acik, model, _, _ = ai_mod.ayarlar(state["config"])
+        kur = try_per_usd()
+        store = open_store()
+        try:
+            report = store.ai_cost_report(kur)
+            unread = store.unread_count(profile_of(request))
+            newest_seen = store.newest_seen_at()
+        finally:
+            store.close()
+        giris_f, cikis_f = ai_mod.fiyat(model)
+        fiyat_listesi = [
+            {"model": ad, "in": gi, "out": ci, "current": ai_mod._model_kok(model) == ad}
+            for ad, (gi, ci) in sorted(ai_mod.FIYATLAR.items())
+        ]
+        context = {
+            **base_context(request),
+            "active_tab": "settings",
+            "report": report,
+            "current_model": model,
+            "current_price": {"in": giris_f, "out": cikis_f},
+            "ai_enabled": acik,
+            "try_per_usd": kur,
+            "price_rows": fiyat_listesi,
+            "scan": scan_state(),
+            "unread": unread,
+            "newest_seen": newest_seen,
+        }
+        return TEMPLATES.TemplateResponse(request, "ai_cost.html", context)
 
     # --- bakim ----------------------------------------------------------
     @app.post("/ayarlar/bakim")

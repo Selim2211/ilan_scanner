@@ -2,11 +2,19 @@
 from __future__ import annotations
 
 APP_NAME = "İlan Tarayıcı"
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 RELEASE_DATE = "2026-09-02"
 
 #: Hakkinda penceresinde madde madde gosterilir - "bu surumde ne degisti".
 CHANGELOG = [
+    ("1.8.0", "2026-09-02", [
+        "Ayarlar > Yapay zeka'ya \"Maliyet\" ekranı eklendi: her modelin harcadığı "
+        "token ve tahmini TL tutarı günlük (son 24 saat), haftalık (son 7 gün) ve "
+        "aylık (son 30 gün) olarak tabloda görünüyor; ekranın başında şu an hangi "
+        "modelin kullanıldığı ve o modelin 1M token fiyatı yazıyor.",
+        "Her başarılı özet çağrısının token sayısı kaydediliyor; tutar modelin "
+        "Gemini API fiyatından ve kur ayarındaki USD/TRY oranından hesaplanıyor.",
+    ]),
     ("1.7.0", "2026-09-02", [
         "Kapanmış ilanlar artık listeye geri gelmiyor. Asıl sorun buydu: ilan "
         "kapatılıyordu ama kaynak (Jooble) kapanmış ilanı günlerce listesinde "

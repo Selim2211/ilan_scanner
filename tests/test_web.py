@@ -578,6 +578,19 @@ def test_ai_hata_verince_eski_davranisa_duser(client, tmp_path, monkeypatch):
     assert veri["summary"].startswith("We need an SAP ABAP")
 
 
+def test_ai_maliyet_kaydi_ve_ekrani(client, tmp_path, monkeypatch):
+    """Basarili ozet maliyet gecmisine yazilir; /ayarlar/maliyet modeli ve tutari gosterir."""
+    fp = _tek_ilan(tmp_path, description="Wir suchen SAP ABAP Entwickler.", score=45)
+    sonuc = {**AI_SONUC, "prompt_tokens": 1300, "output_tokens": 200}
+    _ai_kur(monkeypatch, client, sonuc, esik=30)
+
+    client.get(f"/api/ozet?fingerprint={fp}")
+    sayfa = client.get("/ayarlar/maliyet")
+    assert sayfa.status_code == 200
+    assert "test-model" in sayfa.text
+    assert "1.500 tok" in sayfa.text          # 1300 + 200, nokta ayrac
+
+
 def test_ai_anahtarsizken_gonderilmez(client, tmp_path, monkeypatch):
     import scanner.web.app as app_mod
 

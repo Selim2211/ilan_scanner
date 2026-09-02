@@ -99,6 +99,18 @@ CREATE TABLE IF NOT EXISTS profile_status (
 );
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+
+-- Yapay zeka cagri gecmisi: her basarili ozet bir satir. Maliyet ekrani
+-- (Ayarlar > Yapay zeka > Maliyet) bunu model + tarihe gore toplar.
+CREATE TABLE IF NOT EXISTS ai_usage (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    at            TEXT NOT NULL,
+    model         TEXT NOT NULL,
+    prompt_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cost_usd      REAL DEFAULT 0,
+    fingerprint   TEXT
+);
 """
 
 #: Indeksler ayri tutuluyor: eski bir veritabaninda kolon eksikse once migration
@@ -117,6 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_pr_country ON projects(country_code);
 CREATE INDEX IF NOT EXISTS idx_nt_created ON notifications(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_nt_unread ON notifications(read_at);
 CREATE INDEX IF NOT EXISTS idx_nt_profile ON notifications(profile_id);
+CREATE INDEX IF NOT EXISTS idx_aiusage_at ON ai_usage(at);
 CREATE INDEX IF NOT EXISTS idx_ps_lookup ON profile_status(profile_id, status);
 """
 
@@ -638,6 +651,58 @@ class Storage:
             "ai_at = ? WHERE fingerprint = ?",
             (summary, json.dumps(must_haves, ensure_ascii=False), model, _now(), fingerprint))
         self.conn.commit()
+
+    def record_ai_usage(self, model: str, prompt_tokens: int, output_tokens: int,
+                        cost_usd: float, fingerprint: str = "") -> None:
+        """Basarili bir yapay zeka cagrisini maliyet gecmisine yazar."""
+        self.conn.execute(
+            "INSERT INTO ai_usage (at, model, prompt_tokens, output_tokens, cost_usd, fingerprint) "
+            "VALUES (?,?,?,?,?,?)",
+            (_now(), model or "?", int(prompt_tokens or 0), int(output_tokens or 0),
+             float(cost_usd or 0.0), fingerprint or None))
+        self.conn.commit()
+
+    def ai_cost_report(self, try_per_usd: float = 0.0) -> dict:
+        """Model x donem (gunluk / haftalik / aylik / tum zamanlar) maliyet tablosu.
+
+        Cagri sayisi az (ilan basina en fazla bir kez), toplama Python'da yapilir.
+        `try_per_usd` 1 USD kac TL - 0 verilirse TL kolonu 0 kalir.
+        """
+        now = datetime.now(timezone.utc)
+        sinirlar = {
+            "day": (now - timedelta(days=1)).isoformat(),
+            "week": (now - timedelta(days=7)).isoformat(),
+            "month": (now - timedelta(days=30)).isoformat(),
+        }
+        rows = list(self.conn.execute(
+            "SELECT model, at, COALESCE(prompt_tokens,0) pt, COALESCE(output_tokens,0) ot, "
+            "COALESCE(cost_usd,0) usd FROM ai_usage"))
+
+        def bos_kova() -> dict:
+            return {"calls": 0, "in": 0, "out": 0, "tokens": 0, "usd": 0.0, "try": 0.0}
+
+        def yeni_model() -> dict:
+            return {k: bos_kova() for k in ("day", "week", "month", "all")}
+
+        modeller: dict[str, dict] = {}
+        toplam = yeni_model()
+        for r in rows:
+            hedefler = ["all"] + [d for d, sinir in sinirlar.items() if r["at"] >= sinir]
+            md = modeller.setdefault(r["model"] or "?", yeni_model())
+            for donem in hedefler:
+                for kova in (md[donem], toplam[donem]):
+                    kova["calls"] += 1
+                    kova["in"] += r["pt"]
+                    kova["out"] += r["ot"]
+                    kova["tokens"] += r["pt"] + r["ot"]
+                    kova["usd"] += r["usd"]
+                    kova["try"] += r["usd"] * try_per_usd
+
+        model_listesi = [{"model": ad, "buckets": kovalar}
+                         for ad, kovalar in modeller.items()]
+        model_listesi.sort(key=lambda m: m["buckets"]["all"]["usd"], reverse=True)
+        return {"models": model_listesi, "totals": toplam,
+                "generated_at": now.isoformat(), "try_per_usd": try_per_usd}
 
     def report_closed(self, fingerprint: str, profile_id: int = 0) -> sqlite3.Row | None:
         """Kullanici 'artik aktif degil' derse hemen kapatir.

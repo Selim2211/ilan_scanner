@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Yapay zeka maliyeti · İlan Tarayıcı{% endblock %}
+
+{% block style %}
+<style>
+  .cost-hero { display:flex; flex-wrap:wrap; gap:14px 28px; align-items:baseline; }
+  .cost-hero .model-now { font:700 20px/1.2 var(--font-display); }
+  .cost-hero .state-on  { color:var(--signal); }
+  .cost-hero .state-off { color:var(--coral); }
+  .cost-hero small { color:var(--ink-3); font:500 12px/1.4 var(--font-mono); }
+  .cost-table td.num, .cost-table th.num { text-align:right; font-family:var(--font-mono); }
+  .cost-table .tl  { font-weight:600; }
+  .cost-table .usd { color:var(--ink-3); font-size:11px; }
+  .cost-table .tok { color:var(--ink-2); font-size:11px; }
+  .cost-table tr.current td { background:var(--signal-soft); }
+  .cost-table tr.totals td { border-top:2px solid var(--line); font-weight:600; }
+  .cost-empty { color:var(--ink-3); padding:22px 4px; font-size:13.5px; }
+  .price-list { font:500 12px/1.7 var(--font-mono); color:var(--ink-2); }
+  .price-list b { color:var(--ink-1); }
+  .price-list .cur { color:var(--signal); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="settings-intro card">
+  <h1>Yapay zeka maliyeti</h1>
+  <p>
+    Özet üretmek için Gemini'ye atılan her başarılı istek burada kayıtlıdır. Tablo
+    her modelin harcadığı <b>token</b> ve tahmini <b>TL</b> tutarını son 24 saat
+    (günlük), son 7 gün (haftalık) ve son 30 gün (aylık) için toplar. Tutar,
+    modelin 1M token ücretinden ve 1&nbsp;USD&nbsp;=&nbsp;{{ '%.2f'|format(try_per_usd) }}&nbsp;₺
+    kurundan hesaplanır — yaklaşık bir rakamdır.
+  </p>
+  <div class="settings-nav">
+    <a class="chip tone-yapayzeka" href="/ayarlar#yapayzeka">← Yapay zeka ayarları</a>
+  </div>
+</div>
+
+<section class="card settings-card tone-yapayzeka">
+  <header class="settings-head"><h2>Şu an kullanılan model</h2></header>
+  <div class="cost-hero">
+    <span class="model-now">{{ current_model }}</span>
+    {% if ai_enabled %}
+      <span class="state-on">● özet motoru açık</span>
+    {% else %}
+      <span class="state-off">● özet motoru kapalı</span>
+    {% endif %}
+    <small>
+      1M token: giriş ${{ '%.4g'|format(current_price['in']) }} ·
+      çıkış ${{ '%.4g'|format(current_price['out']) }}
+    </small>
+  </div>
+</section>
+
+<section class="card settings-card tone-yapayzeka">
+  <header class="settings-head">
+    <h2>Model başına harcama</h2>
+    <p class="muted">Her hücre: üstte token, altta TL tutarı (parantezde USD).</p>
+  </header>
+
+  {% if not report.models %}
+  <p class="cost-empty">
+    Henüz yapay zeka çağrısı yapılmadı. Bir ilanın özetini açtığınızda
+    (kart üzerindeki mavi “i” düğmesi) ilk kayıt buraya düşer.
+  </p>
+  {% else %}
+  {% macro hucre(b) -%}
+    <td class="num">
+      <div class="tok">{{ '{:,}'.format(b.tokens).replace(',', '.') }} tok</div>
+      <div class="tl">₺{{ '%.2f'|format(b['try']) }}</div>
+      <div class="usd">(${{ '%.4f'|format(b.usd) }})</div>
+    </td>
+  {%- endmacro %}
+  <table class="settings-table cost-table">
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th class="num">Günlük<br><small>son 24 sa</small></th>
+        <th class="num">Haftalık<br><small>son 7 gün</small></th>
+        <th class="num">Aylık<br><small>son 30 gün</small></th>
+        <th class="num">Tüm zamanlar</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in report.models %}
+      <tr class="{% if m.model == current_model %}current{% endif %}">
+        <td>
+          {{ m.model }}
+          {% if m.model == current_model %}<span class="pill fresh">şu an</span>{% endif %}
+          <div class="tok">{{ m.buckets.all.calls }} çağrı</div>
+        </td>
+        {{ hucre(m.buckets.day) }}
+        {{ hucre(m.buckets.week) }}
+        {{ hucre(m.buckets.month) }}
+        {{ hucre(m.buckets.all) }}
+      </tr>
+      {% endfor %}
+      <tr class="totals">
+        <td>Toplam<div class="tok">{{ report.totals.all.calls }} çağrı</div></td>
+        {{ hucre(report.totals.day) }}
+        {{ hucre(report.totals.week) }}
+        {{ hucre(report.totals.month) }}
+        {{ hucre(report.totals.all) }}
+      </tr>
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section class="card settings-card tone-yapayzeka">
+  <header class="settings-head">
+    <h2>Fiyat listesi</h2>
+    <p class="muted">1 milyon token için USD (giriş / çıkış). Kaynak: Google Gemini API.</p>
+  </header>
+  <div class="price-list">
+    {% for p in price_rows %}
+    <div>
+      {% if p.current %}<span class="cur">▸</span>{% else %}&nbsp;&nbsp;{% endif %}
+      <b>{{ p.model }}</b> — giriş ${{ '%.4g'|format(p['in']) }} · çıkış ${{ '%.4g'|format(p['out']) }}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
