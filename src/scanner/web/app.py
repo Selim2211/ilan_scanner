@@ -1152,10 +1152,16 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         finally:
             store.close()
         giris_f, cikis_f = ai_mod.fiyat(model)
-        fiyat_listesi = [
-            {"model": ad, "in": gi, "out": ci, "current": ai_mod._model_kok(model) == ad}
-            for ad, (gi, ci) in sorted(ai_mod.FIYATLAR.items())
-        ]
+        kok = ai_mod._model_kok(model)
+        # Fiyat tablosu YENIDEN ESKIYE (dict sirasi). Kullanilan model listede
+        # yoksa (yeni/deneysel bir model) tahmini fiyatiyla en uste eklenir.
+        fiyat_listesi = []
+        if kok not in ai_mod.FIYATLAR:
+            fiyat_listesi.append({"model": kok, "in": giris_f, "out": cikis_f,
+                                  "current": True, "bilinmiyor": True})
+        for ad, (gi, ci) in ai_mod.FIYATLAR.items():
+            fiyat_listesi.append({"model": ad, "in": gi, "out": ci,
+                                  "current": kok == ad, "bilinmiyor": False})
         context = {
             **base_context(request),
             "active_tab": "settings",

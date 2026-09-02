@@ -10,10 +10,14 @@ CHANGELOG = [
     ("1.8.0", "2026-09-02", [
         "Ayarlar > Yapay zeka'ya \"Maliyet\" ekranı eklendi: her modelin harcadığı "
         "token ve tahmini TL tutarı günlük (son 24 saat), haftalık (son 7 gün) ve "
-        "aylık (son 30 gün) olarak tabloda görünüyor; ekranın başında şu an hangi "
-        "modelin kullanıldığı ve o modelin 1M token fiyatı yazıyor.",
+        "aylık (son 30 gün) olarak tabloda görünüyor. Dönem, tablonun üstündeki "
+        "düğmelerle seçiliyor. Ekranın başında şu an hangi modelin kullanıldığı ve "
+        "o modelin 1M token fiyatı yazıyor.",
         "Her başarılı özet çağrısının token sayısı kaydediliyor; tutar modelin "
         "Gemini API fiyatından ve kur ayarındaki USD/TRY oranından hesaplanıyor.",
+        "Fiyat listesi güncel nesle indirildi (Gemini 2.5 ve 3.x); 2.0 ve "
+        "altındaki eski modeller çıkarıldı. Listede olmayan bir model kullanılırsa "
+        "tahmini fiyatıyla tabloya ekleniyor.",
     ]),
     ("1.7.0", "2026-09-02", [
         "Kapanmış ilanlar artık listeye geri gelmiyor. Asıl sorun buydu: ilan "

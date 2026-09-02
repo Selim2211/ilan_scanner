@@ -18,6 +18,22 @@
   .price-list { font:500 12px/1.7 var(--font-mono); color:var(--ink-2); }
   .price-list b { color:var(--ink-1); }
   .price-list .cur { color:var(--signal); }
+  .price-list .est { color:var(--amber); }
+
+  .period-tabs { display:flex; flex-wrap:wrap; gap:6px; margin:2px 0 14px; }
+  .period-tabs button {
+    font:600 12px/1 var(--font-mono); padding:7px 12px; border-radius:8px;
+    border:1px solid var(--line); background:var(--surface-2); color:var(--ink-2);
+    cursor:pointer;
+  }
+  .period-tabs button.active {
+    background:var(--signal-soft); color:var(--signal); border-color:transparent;
+  }
+  .cost-table th.period, .cost-table td.period { display:none; }
+  .cost-table.show-day   .period.col-day,
+  .cost-table.show-week  .period.col-week,
+  .cost-table.show-month .period.col-month,
+  .cost-table.show-all   .period.col-all { display:table-cell; }
 </style>
 {% endblock %}
 
@@ -55,7 +71,8 @@
 <section class="card settings-card tone-yapayzeka">
   <header class="settings-head">
     <h2>Model başına harcama</h2>
-    <p class="muted">Her hücre: üstte token, altta TL tutarı (parantezde USD).</p>
+    <p class="muted">Her hücre: üstte token, altta TL tutarı (parantezde USD).
+      Aşağıdaki düğmeyle dönem seçin.</p>
   </header>
 
   {% if not report.models %}
@@ -64,21 +81,29 @@
     (kart üzerindeki mavi “i” düğmesi) ilk kayıt buraya düşer.
   </p>
   {% else %}
-  {% macro hucre(b) -%}
-    <td class="num">
+  {% macro hucre(b, kolon) -%}
+    <td class="num period col-{{ kolon }}">
       <div class="tok">{{ '{:,}'.format(b.tokens).replace(',', '.') }} tok</div>
       <div class="tl">₺{{ '%.2f'|format(b['try']) }}</div>
       <div class="usd">(${{ '%.4f'|format(b.usd) }})</div>
     </td>
   {%- endmacro %}
-  <table class="settings-table cost-table">
+
+  <div class="period-tabs" id="period-tabs">
+    <button type="button" data-p="day" class="active">Günlük · son 24 sa</button>
+    <button type="button" data-p="week">Haftalık · son 7 gün</button>
+    <button type="button" data-p="month">Aylık · son 30 gün</button>
+    <button type="button" data-p="all">Tüm zamanlar</button>
+  </div>
+
+  <table class="settings-table cost-table show-day" id="cost-table">
     <thead>
       <tr>
         <th>Model</th>
-        <th class="num">Günlük<br><small>son 24 sa</small></th>
-        <th class="num">Haftalık<br><small>son 7 gün</small></th>
-        <th class="num">Aylık<br><small>son 30 gün</small></th>
-        <th class="num">Tüm zamanlar</th>
+        <th class="num period col-day">Günlük</th>
+        <th class="num period col-week">Haftalık</th>
+        <th class="num period col-month">Aylık</th>
+        <th class="num period col-all">Tüm zamanlar</th>
       </tr>
     </thead>
     <tbody>
@@ -89,34 +114,54 @@
           {% if m.model == current_model %}<span class="pill fresh">şu an</span>{% endif %}
           <div class="tok">{{ m.buckets.all.calls }} çağrı</div>
         </td>
-        {{ hucre(m.buckets.day) }}
-        {{ hucre(m.buckets.week) }}
-        {{ hucre(m.buckets.month) }}
-        {{ hucre(m.buckets.all) }}
+        {{ hucre(m.buckets.day, 'day') }}
+        {{ hucre(m.buckets.week, 'week') }}
+        {{ hucre(m.buckets.month, 'month') }}
+        {{ hucre(m.buckets.all, 'all') }}
       </tr>
       {% endfor %}
       <tr class="totals">
         <td>Toplam<div class="tok">{{ report.totals.all.calls }} çağrı</div></td>
-        {{ hucre(report.totals.day) }}
-        {{ hucre(report.totals.week) }}
-        {{ hucre(report.totals.month) }}
-        {{ hucre(report.totals.all) }}
+        {{ hucre(report.totals.day, 'day') }}
+        {{ hucre(report.totals.week, 'week') }}
+        {{ hucre(report.totals.month, 'month') }}
+        {{ hucre(report.totals.all, 'all') }}
       </tr>
     </tbody>
   </table>
+
+  <script>
+    (function () {
+      var tbl = document.getElementById("cost-table");
+      var tabs = document.getElementById("period-tabs");
+      if (!tbl || !tabs) return;
+      tabs.addEventListener("click", function (e) {
+        var b = e.target.closest("button[data-p]");
+        if (!b) return;
+        tbl.className = "settings-table cost-table show-" + b.dataset.p;
+        tabs.querySelectorAll("button").forEach(function (x) {
+          x.classList.toggle("active", x === b);
+        });
+      });
+    })();
+  </script>
   {% endif %}
 </section>
 
 <section class="card settings-card tone-yapayzeka">
   <header class="settings-head">
     <h2>Fiyat listesi</h2>
-    <p class="muted">1 milyon token için USD (giriş / çıkış). Kaynak: Google Gemini API.</p>
+    <p class="muted">1 milyon token için USD (giriş / çıkış). Yalnızca güncel nesil
+      (Gemini 2.5 ve 3.x). <span class="est">★</span> ile işaretli 3.x fiyatları
+      Google resmi liste yayınlayana kadar tahminidir.</p>
   </header>
   <div class="price-list">
     {% for p in price_rows %}
     <div>
       {% if p.current %}<span class="cur">▸</span>{% else %}&nbsp;&nbsp;{% endif %}
       <b>{{ p.model }}</b> — giriş ${{ '%.4g'|format(p['in']) }} · çıkış ${{ '%.4g'|format(p['out']) }}
+      {% if p.bilinmiyor %}<span class="est">★ tahmini (listede yok)</span>
+      {% elif p.model.startswith('gemini-3') %}<span class="est">★</span>{% endif %}
     </div>
     {% endfor %}
   </div>

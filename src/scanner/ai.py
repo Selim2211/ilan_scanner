@@ -39,23 +39,34 @@ VARSAYILAN_MODEL = "gemini-3.5-flash-lite"
 #: Kaynak: Google Gemini API fiyat listesi. Google fiyati degistirirse ya da
 #: burada olmayan bir model kullanilirsa `VARSAYILAN_FIYAT` devreye girer.
 #: Maliyet ekrani (Ayarlar > Yapay zeka > Maliyet) bu tabloyu kullanir.
+#:
+#: Yalnizca guncel nesil (Gemini 2.5 ve 3.x) tutuluyor; 2.0 ve altindaki
+#: modeller listeden cikarildi. 3.x fiyatlari Google resmi liste yayinlayana
+#: kadar bir onceki nesle (2.5) gore tahminidir - siralamada YENIDEN ESKIYE.
 FIYATLAR: dict[str, tuple[float, float]] = {
+    "gemini-3.6-flash": (0.30, 2.50),
+    "gemini-3.6-flash-lite": (0.10, 0.40),
+    "gemini-3.5-pro": (1.25, 10.00),
+    "gemini-3.5-flash": (0.30, 2.50),
     "gemini-3.5-flash-lite": (0.10, 0.40),
-    "gemini-2.5-flash-lite": (0.10, 0.40),
-    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-3-pro": (1.25, 10.00),
+    "gemini-3-flash": (0.30, 2.50),
+    "gemini-3-flash-lite": (0.10, 0.40),
     "gemini-2.5-pro": (1.25, 10.00),
-    "gemini-2.0-flash-lite": (0.075, 0.30),
-    "gemini-2.0-flash": (0.10, 0.40),
-    "gemini-1.5-flash": (0.075, 0.30),
-    "gemini-1.5-flash-8b": (0.0375, 0.15),
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-flash-lite": (0.10, 0.40),
 }
 VARSAYILAN_FIYAT: tuple[float, float] = (0.10, 0.40)
 
 
 def _model_kok(model: str) -> str:
-    """'models/gemini-2.5-flash-lite-preview-06' -> 'gemini-2.5-flash-lite'."""
+    """'models/gemini-3.5-flash-lite-preview-06' -> 'gemini-3.5-flash-lite'.
+
+    En uzun eslesen anahtar kazanir: 'gemini-3.5-flash-lite', 'gemini-3.5-flash'
+    on ekiyle de baslar, once uzun olan denenmezse yanlis fiyat secilir.
+    """
     ad = (model or "").strip().lower().removeprefix("models/")
-    for bilinen in FIYATLAR:
+    for bilinen in sorted(FIYATLAR, key=len, reverse=True):
         if ad == bilinen or ad.startswith(bilinen + "-"):
             return bilinen
     return ad
