@@ -662,11 +662,14 @@ class Storage:
              float(cost_usd or 0.0), fingerprint or None))
         self.conn.commit()
 
-    def ai_cost_report(self, try_per_usd: float = 0.0) -> dict:
+    def ai_cost_report(self, try_per_usd: float = 0.0, fiyat_fn=None) -> dict:
         """Model x donem (gunluk / haftalik / aylik / tum zamanlar) maliyet tablosu.
 
         Cagri sayisi az (ilan basina en fazla bir kez), toplama Python'da yapilir.
         `try_per_usd` 1 USD kac TL - 0 verilirse TL kolonu 0 kalir.
+        `fiyat_fn(model) -> (girdi_1M_usd, cikti_1M_usd)` verilirse USD tutari
+        kayitli `cost_usd` yerine GUNCEL fiyattan yeniden hesaplanir (fiyat
+        tablosu degisince eski satirlar da yeni fiyati yansitsin).
         """
         now = datetime.now(timezone.utc)
         sinirlar = {
@@ -687,16 +690,22 @@ class Storage:
         modeller: dict[str, dict] = {}
         toplam = yeni_model()
         for r in rows:
+            model = r["model"] or "?"
+            if fiyat_fn is not None:
+                gi, ci = fiyat_fn(model)
+                usd = r["pt"] / 1_000_000 * gi + r["ot"] / 1_000_000 * ci
+            else:
+                usd = r["usd"]
             hedefler = ["all"] + [d for d, sinir in sinirlar.items() if r["at"] >= sinir]
-            md = modeller.setdefault(r["model"] or "?", yeni_model())
+            md = modeller.setdefault(model, yeni_model())
             for donem in hedefler:
                 for kova in (md[donem], toplam[donem]):
                     kova["calls"] += 1
                     kova["in"] += r["pt"]
                     kova["out"] += r["ot"]
                     kova["tokens"] += r["pt"] + r["ot"]
-                    kova["usd"] += r["usd"]
-                    kova["try"] += r["usd"] * try_per_usd
+                    kova["usd"] += usd
+                    kova["try"] += usd * try_per_usd
 
         model_listesi = [{"model": ad, "buckets": kovalar}
                          for ad, kovalar in modeller.items()]

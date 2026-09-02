@@ -35,28 +35,25 @@ MAX_KARAKTER = 6000
 
 VARSAYILAN_MODEL = "gemini-3.5-flash-lite"
 
-#: Model basina yaklasik ucret - 1 MILYON token icin USD (girdi, cikti).
-#: Kaynak: Google Gemini API fiyat listesi. Google fiyati degistirirse ya da
+#: Model basina RESMI ucret - 1 MILYON token icin USD (girdi, cikti).
+#: Kaynak: Google Gemini API "Ucretli katman" fiyat listesi (Standart, metin;
+#: cikti = dusunme jetonlari dahil). Prompt'larimiz 200k token'in cok altinda,
+#: kademe fiyatlarinin dusuk basamagi gecerli. Google fiyati degistirirse ya da
 #: burada olmayan bir model kullanilirsa `VARSAYILAN_FIYAT` devreye girer.
 #: Maliyet ekrani (Ayarlar > Yapay zeka > Maliyet) bu tabloyu kullanir.
-#:
-#: Yalnizca guncel nesil (Gemini 2.5 ve 3.x) tutuluyor; 2.0 ve altindaki
-#: modeller listeden cikarildi. 3.x fiyatlari Google resmi liste yayinlayana
-#: kadar bir onceki nesle (2.5) gore tahminidir - siralamada YENIDEN ESKIYE.
+#: Yalnizca guncel nesil (Gemini 2.5 ve 3.x) - siralamada YENIDEN ESKIYE.
 FIYATLAR: dict[str, tuple[float, float]] = {
-    "gemini-3.6-flash": (0.30, 2.50),
-    "gemini-3.6-flash-lite": (0.10, 0.40),
-    "gemini-3.5-pro": (1.25, 10.00),
-    "gemini-3.5-flash": (0.30, 2.50),
-    "gemini-3.5-flash-lite": (0.10, 0.40),
-    "gemini-3-pro": (1.25, 10.00),
-    "gemini-3-flash": (0.30, 2.50),
-    "gemini-3-flash-lite": (0.10, 0.40),
+    "gemini-3.6-flash": (1.50, 7.50),
+    "gemini-3.5-flash": (1.50, 9.00),
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    "gemini-3.1-pro-preview": (2.00, 12.00),
+    "gemini-3.1-flash-lite": (0.25, 1.50),
+    "gemini-3-flash-preview": (0.50, 3.00),
     "gemini-2.5-pro": (1.25, 10.00),
     "gemini-2.5-flash": (0.30, 2.50),
     "gemini-2.5-flash-lite": (0.10, 0.40),
 }
-VARSAYILAN_FIYAT: tuple[float, float] = (0.10, 0.40)
+VARSAYILAN_FIYAT: tuple[float, float] = (0.30, 2.50)
 
 
 def _model_kok(model: str) -> str:

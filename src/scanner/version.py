@@ -15,9 +15,10 @@ CHANGELOG = [
         "o modelin 1M token fiyatı yazıyor.",
         "Her başarılı özet çağrısının token sayısı kaydediliyor; tutar modelin "
         "Gemini API fiyatından ve kur ayarındaki USD/TRY oranından hesaplanıyor.",
-        "Fiyat listesi güncel nesle indirildi (Gemini 2.5 ve 3.x); 2.0 ve "
-        "altındaki eski modeller çıkarıldı. Listede olmayan bir model kullanılırsa "
-        "tahmini fiyatıyla tabloya ekleniyor.",
+        "Fiyat listesi Google Gemini API resmi ücretli katman fiyatlarıyla "
+        "güncellendi (Gemini 2.5 ve 3.x; standart, metin). 2.0 ve altındaki eski "
+        "modeller çıkarıldı. Listede olmayan bir model kullanılırsa varsayılan "
+        "fiyatla tabloya ekleniyor.",
     ]),
     ("1.7.0", "2026-09-02", [
         "Kapanmış ilanlar artık listeye geri gelmiyor. Asıl sorun buydu: ilan "

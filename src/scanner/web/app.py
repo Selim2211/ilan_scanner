@@ -1146,7 +1146,7 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         kur = try_per_usd()
         store = open_store()
         try:
-            report = store.ai_cost_report(kur)
+            report = store.ai_cost_report(kur, fiyat_fn=ai_mod.fiyat)
             unread = store.unread_count(profile_of(request))
             newest_seen = store.newest_seen_at()
         finally:

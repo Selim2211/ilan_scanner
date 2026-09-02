@@ -151,17 +151,16 @@
 <section class="card settings-card tone-yapayzeka">
   <header class="settings-head">
     <h2>Fiyat listesi</h2>
-    <p class="muted">1 milyon token için USD (giriş / çıkış). Yalnızca güncel nesil
-      (Gemini 2.5 ve 3.x). <span class="est">★</span> ile işaretli 3.x fiyatları
-      Google resmi liste yayınlayana kadar tahminidir.</p>
+    <p class="muted">1 milyon token için USD (giriş / çıkış, çıkışa düşünme
+      jetonları dahil). Kaynak: Google Gemini API ücretli katman — standart, metin.
+      Yalnızca güncel nesil (Gemini 2.5 ve 3.x).</p>
   </header>
   <div class="price-list">
     {% for p in price_rows %}
     <div>
       {% if p.current %}<span class="cur">▸</span>{% else %}&nbsp;&nbsp;{% endif %}
       <b>{{ p.model }}</b> — giriş ${{ '%.4g'|format(p['in']) }} · çıkış ${{ '%.4g'|format(p['out']) }}
-      {% if p.bilinmiyor %}<span class="est">★ tahmini (listede yok)</span>
-      {% elif p.model.startswith('gemini-3') %}<span class="est">★</span>{% endif %}
+      {% if p.bilinmiyor %}<span class="est">★ listede yok — varsayılan fiyat</span>{% endif %}
     </div>
     {% endfor %}
   </div>

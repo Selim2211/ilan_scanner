@@ -21,8 +21,8 @@ def test_model_kok_en_uzun_eslesme():
     """flash-lite, flash on ekiyle de baslar - once uzun anahtar denenmeli."""
     assert ai_modulu._model_kok("models/gemini-3.5-flash-lite-preview") == "gemini-3.5-flash-lite"
     assert ai_modulu._model_kok("gemini-3.5-flash") == "gemini-3.5-flash"
-    assert ai_modulu.fiyat("gemini-3.5-flash-lite") == (0.10, 0.40)
-    assert ai_modulu.fiyat("gemini-3.5-flash") == (0.30, 2.50)
+    assert ai_modulu.fiyat("gemini-3.5-flash-lite") == (0.30, 2.50)
+    assert ai_modulu.fiyat("gemini-3.5-flash") == (1.50, 9.00)
 
 
 def test_bilinmeyen_model_varsayilan_fiyat():
@@ -30,8 +30,8 @@ def test_bilinmeyen_model_varsayilan_fiyat():
 
 
 def test_maliyet_usd_hesabi():
-    # 1M girdi @ 0.10 + 0.5M cikti @ 0.40 = 0.10 + 0.20 = 0.30
-    assert ai_modulu.maliyet_usd("gemini-3.5-flash-lite", 1_000_000, 500_000) == pytest.approx(0.30)
+    # gemini-2.5-flash-lite: 1M girdi @ 0.10 + 0.5M cikti @ 0.40 = 0.10 + 0.20 = 0.30
+    assert ai_modulu.maliyet_usd("gemini-2.5-flash-lite", 1_000_000, 500_000) == pytest.approx(0.30)
 
 
 class SahteYanit:
