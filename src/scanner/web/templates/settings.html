@@ -414,18 +414,6 @@
       mevcut anahtar değişmez.</p>
   </header>
 
-  {% if duz_metin_anahtarlar %}
-  {# Sifreli depoya tasindilar ama duz metin kopya diskte duruyor: asil guvenlik
-     hedefi ancak o dosya silinince saglanir. Silmeyi KULLANICI secsin - dosya
-     Docker paketlemede tohum olarak da kullaniliyor olabilir. #}
-  <p class="settings-warn">
-    <b>{{ duz_metin_anahtarlar }} anahtar hâlâ düz metin dosyada.</b>
-    Şifreli depoya kopyalandılar; panel artık şifreli olanı kullanıyor.
-    Düz metin kopyanın silinmesi önerilir:
-    <code>{{ env_dosyasi }}</code>
-  </p>
-  {% endif %}
-
   <form method="post" action="/ayarlar/anahtarlar">
     <table class="keys">
       <thead>

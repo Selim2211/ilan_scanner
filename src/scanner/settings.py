@@ -54,34 +54,16 @@ def scrub(text: str) -> str:
     return text
 
 
-def duz_metin_durumu() -> dict[str, Any]:
-    """Ayarlar ekranindaki "hala duz metin" uyarisi icin veri.
+def anahtar_dosyalari() -> dict[str, Any]:
+    """Ayarlar girisinde gosterilen anahtar dosyalarinin yollari.
 
-    Anahtarlar artik sifreli depoda; ama kurulumdan kalma `.env` dosyasi hala
-    duz metin kopyayi tasiyor olabilir. Dosyayi KENDILIGINDEN silmiyoruz:
-    Docker paketleme betigi (tools/paket_docker.ps1) ayni dosyayi tohum olarak
-    kullaniyor. Silme karari kullanicinin.
+    Yedek alirken ikisi birlikte alinmali: sifreli depo tek basina ise yaramaz,
+    cozme anahtari olmadan acilamaz.
     """
-    from .config import env_path
-
     from . import secrets_store
 
-    ortak = {"secrets_file": str(secrets_store.db_path()),
-             "secret_key_file": str(secrets_store.key_path())}
-    yol = env_path()
-    if not yol.exists():
-        return {**ortak, "duz_metin_anahtarlar": 0, "env_dosyasi": ""}
-    gizli = {var.name for cls in REGISTRY.values() for var in cls.env_requirements()}
-    gizli.add("GEMINI_API_KEY")
-    sayi = 0
-    for satir in yol.read_text(encoding="utf-8").splitlines():
-        satir = satir.strip()
-        if not satir or satir.startswith("#") or "=" not in satir:
-            continue
-        ad, _, deger = satir.partition("=")
-        if ad.strip() in gizli and deger.strip():
-            sayi += 1
-    return {**ortak, "duz_metin_anahtarlar": sayi, "env_dosyasi": str(yol)}
+    return {"secrets_file": str(secrets_store.db_path()),
+            "secret_key_file": str(secrets_store.key_path())}
 
 
 def env_state(config: dict | None = None) -> list[dict[str, Any]]:

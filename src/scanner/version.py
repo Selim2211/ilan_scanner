@@ -2,11 +2,30 @@
 from __future__ import annotations
 
 APP_NAME = "İlan Tarayıcı"
-VERSION = "1.6.0"
-RELEASE_DATE = "2026-08-27"
+VERSION = "1.7.0"
+RELEASE_DATE = "2026-09-02"
 
 #: Hakkinda penceresinde madde madde gosterilir - "bu surumde ne degisti".
 CHANGELOG = [
+    ("1.7.0", "2026-09-02", [
+        "Kapanmış ilanlar artık listeye geri gelmiyor. Asıl sorun buydu: ilan "
+        "kapatılıyordu ama kaynak (Jooble) kapanmış ilanı günlerce listesinde "
+        "tuttuğu için her taramada geri açılıyordu — ölçüldü, 199 ilan "
+        "\"kapandı\" işareti almasına rağmen listede duruyordu.",
+        "\"Tümünü kontrol et\" artık ekranda gördüğünüz ilanları kontrol ediyor: "
+        "onay penceresindeki sayı ile listedeki sayı aynı.",
+        "Kontrol turu belirgin hızlandı: linki hiçbir zaman açılmayan kaynaklara "
+        "(Jooble) boşuna istek atılmıyor, doğrudan kaynağın API'sine soruluyor. "
+        "\"Doğrulanamadı\" sayısı da artık gerçeği gösteriyor.",
+        "API anahtarları veritabanında şifreli saklanıyor; ekranda yalnızca "
+        "yıldız görünüyor, hiçbir karakter sızmıyor.",
+        "İlan özeti artık kartın üstüne gelince değil, karttaki mor \"i\" "
+        "düğmesine tıklayınca açılıyor; pencere ekranın ortasında beliriyor ve "
+        "arka planı kilitlemiyor.",
+        "Ülke filtresi baştan yazıldı: aranabilir, kıtaya göre gruplu, ilan "
+        "sayılı çoklu seçim. Artık gerçekten ülkeye göre filtreliyor.",
+        "Izgara görünümünde kartlardaki yarım kesilen satır düzeltildi.",
+    ]),
     ("1.6.0", "2026-08-27", [
         "İlan özetleri artık yapay zeka ile hazırlanıyor: kısa özet ve o ilana "
         "başvurmak için gereken \"olmazsa olmaz\" koşullar altı çizili listeleniyor.",
