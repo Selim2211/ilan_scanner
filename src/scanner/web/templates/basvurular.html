@@ -6,8 +6,17 @@
   .headline { display:flex; align-items:center; justify-content:space-between; gap:12px;
               flex-wrap:wrap; margin:2px 2px 14px; }
   .headline h1 { margin:0; font-size:21px; }
-  .app-filters { display:flex; gap:8px; flex-wrap:wrap; margin:0 2px 16px; }
+  .app-filters { display:flex; gap:8px; flex-wrap:wrap; margin:0 2px 12px; }
   .app-filters a.chip { font:600 11.5px/1 var(--font-mono); }
+  .app-toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:0 2px 16px; }
+  .app-toolbar input[type=search] {
+    flex:1; min-width:180px; padding:8px 10px; border-radius:var(--r-sm);
+    border:1px solid var(--line); background:var(--surface-2); color:var(--ink); font-size:13px;
+  }
+  .app-toolbar select {
+    padding:8px 10px; border-radius:var(--r-sm); border:1px solid var(--line);
+    background:var(--surface-2); color:var(--ink); font-size:13px;
+  }
 
   .status-badge {
     display:inline-flex; align-items:center; gap:6px; padding:4px 10px;
@@ -23,6 +32,9 @@
   a.chip.st-applied.active,     a.chip.st-applied:hover      { border-color:var(--violet); color:var(--violet); }
   a.chip.st-rejected.active,    a.chip.st-rejected:hover     { border-color:var(--coral);  color:var(--coral); }
   a.chip.st-won.active,         a.chip.st-won:hover          { border-color:var(--signal); color:var(--signal); }
+  a.chip.st-won_pending.active, a.chip.st-won_pending:hover  { border-color:var(--amber);  color:var(--amber); }
+  a.chip.st-won_active.active,  a.chip.st-won_active:hover   { border-color:var(--signal); color:var(--signal); }
+  a.chip.st-won_done.active,    a.chip.st-won_done:hover     { border-color:var(--ink-3);  color:var(--ink-2); }
 
   .app-row { display:grid; grid-template-columns:1fr auto; gap:12px 16px; align-items:start;
              padding:14px 16px; border-left:3px solid var(--line); }
@@ -41,7 +53,7 @@
   .app-row select { flex:1; padding:7px 8px; border-radius:var(--r-sm);
                     border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
                     font-size:13px; }
-  .app-row .side .links { display:flex; gap:8px; justify-content:flex-end; }
+  .app-row .side .links { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
   @media (max-width:640px) {
     .app-row { grid-template-columns:1fr; }
     .app-row .side { min-width:0; }
@@ -50,17 +62,33 @@
 {% endblock %}
 
 {% block content %}
+{% set qs = "durum=" ~ durum ~ "&q=" ~ (q | urlencode) ~ "&sort=" ~ sort %}
 <div class="headline">
   <h1>Başvurular</h1>
   <a class="btn" href="/">← İlan listesi</a>
 </div>
 
 <div class="app-filters">
-  <a class="chip {% if not durum %}active{% endif %}" href="/basvurular">Hepsi · {{ total_count }}</a>
-  <a class="chip st-applied {% if durum == 'applied' %}active{% endif %}" href="/basvurular?durum=applied">Başvuruldu · {{ group_counts.applied }}</a>
-  <a class="chip st-rejected {% if durum == 'rejected' %}active{% endif %}" href="/basvurular?durum=rejected">Olumsuz · {{ group_counts.rejected }}</a>
-  <a class="chip st-won {% if durum == 'won' %}active{% endif %}" href="/basvurular?durum=won">Olumlu (tümü) · {{ group_counts.won }}</a>
+  <a class="chip {% if not durum %}active{% endif %}" href="/basvurular?q={{ q | urlencode }}&sort={{ sort }}">Hepsi · {{ total_count }}</a>
+  <a class="chip st-applied {% if durum == 'applied' %}active{% endif %}" href="/basvurular?durum=applied&q={{ q | urlencode }}&sort={{ sort }}">Başvuruldu · {{ counts.applied }}</a>
+  <a class="chip st-rejected {% if durum == 'rejected' %}active{% endif %}" href="/basvurular?durum=rejected&q={{ q | urlencode }}&sort={{ sort }}">Olumsuz · {{ counts.rejected }}</a>
+  <a class="chip st-won {% if durum == 'won' %}active{% endif %}" href="/basvurular?durum=won&q={{ q | urlencode }}&sort={{ sort }}">Olumlu (tümü) · {{ group_counts.won }}</a>
+  <a class="chip st-won_pending {% if durum == 'won_pending' %}active{% endif %}" href="/basvurular?durum=won_pending&q={{ q | urlencode }}&sort={{ sort }}">— başlamadı · {{ counts.won_pending }}</a>
+  <a class="chip st-won_active {% if durum == 'won_active' %}active{% endif %}" href="/basvurular?durum=won_active&q={{ q | urlencode }}&sort={{ sort }}">— çalışılıyor · {{ counts.won_active }}</a>
+  <a class="chip st-won_done {% if durum == 'won_done' %}active{% endif %}" href="/basvurular?durum=won_done&q={{ q | urlencode }}&sort={{ sort }}">— bitti · {{ counts.won_done }}</a>
 </div>
+
+<form class="app-toolbar" method="get" action="/basvurular">
+  {% if durum %}<input type="hidden" name="durum" value="{{ durum }}">{% endif %}
+  <input type="search" name="q" value="{{ q }}" placeholder="Başlık, firma veya kaynakta ara…">
+  <select name="sort" onchange="this.form.submit()" aria-label="Sırala">
+    <option value="guncel" {% if sort == "guncel" %}selected{% endif %}>Durum güncellenmesine göre</option>
+    <option value="skor" {% if sort == "skor" %}selected{% endif %}>Skora göre</option>
+    <option value="tarih" {% if sort == "tarih" %}selected{% endif %}>İlan tarihine göre</option>
+  </select>
+  <button class="btn btn-sm" type="submit">Filtrele</button>
+  {% if q or durum or sort != "guncel" %}<a class="btn btn-sm" href="/basvurular">Sıfırla</a>{% endif %}
+</form>
 
 {% if rows %}
 <div class="feed">
@@ -79,7 +107,7 @@
     <div class="side">
       <form method="post" action="/status">
         <input type="hidden" name="fingerprint" value="{{ r['fingerprint'] }}">
-        <input type="hidden" name="back" value="/basvurular{% if durum %}?durum={{ durum }}{% endif %}">
+        <input type="hidden" name="back" value="/basvurular?{{ qs }}">
         <select name="status" onchange="this.form.submit()" aria-label="Başvuru durumu">
           {% for key, label in labels.items() %}
           <option value="{{ key }}" {% if r['mark'] == key %}selected{% endif %}>{{ label }}</option>
@@ -88,12 +116,22 @@
         <button class="btn btn-sm" type="submit">Kaydet</button>
       </form>
       <div class="links">
+        <form method="post" action="/status"
+              data-confirm="“{{ r['title'] }}” başvuru takibinden çıkarılıp normal ilan listesine geri dönecek."
+              data-confirm-label="Evet, kaldır">
+          <input type="hidden" name="fingerprint" value="{{ r['fingerprint'] }}">
+          <input type="hidden" name="status" value="new">
+          <input type="hidden" name="back" value="/basvurular?{{ qs }}">
+          <button class="btn btn-sm" type="submit" title="Yanlışlıkla işaretlendiyse: başvuru durumunu kaldırır, ilan tekrar normal listeye döner">
+            Kaldır
+          </button>
+        </form>
         {% if can_delete %}
         <form method="post" action="/basvuru/sil"
               data-confirm="“{{ r['title'] }}” ilanı veritabanından tamamen silinecek. Bu işlem geri alınamaz."
               data-confirm-label="Evet, sil">
           <input type="hidden" name="fingerprint" value="{{ r['fingerprint'] }}">
-          <input type="hidden" name="back" value="/basvurular{% if durum %}?durum={{ durum }}{% endif %}">
+          <input type="hidden" name="back" value="/basvurular?{{ qs }}">
           <button class="btn btn-sm danger" type="submit">Sil</button>
         </form>
         {% endif %}
@@ -108,9 +146,9 @@
          stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
     </svg>
-    {% if durum %}
-      <h2>Bu durumda ilan yok</h2>
-      <p>Filtreyi <a href="/basvurular">temizleyin</a> ya da başka bir durum seçin.</p>
+    {% if durum or q %}
+      <h2>Bu filtreye uyan başvuru yok</h2>
+      <p><a href="/basvurular">Filtreleri temizleyin</a> ya da başka bir durum seçin.</p>
     {% else %}
       <h2>Henüz başvuru yok</h2>
       <p>İlan listesinde bir ilanı "Başvurdum" olarak işaretleyin; buraya düşer ve

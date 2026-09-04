@@ -726,6 +726,46 @@ def test_basvurular_durum_grubu_filtreler(client, tmp_path):
     assert "İlan A" in basvuruldu
     assert "İlan B" not in basvuruldu and "İlan C" not in basvuruldu
 
+    # tek tek olumlu alt durumlari da ayri filtrelenebilmeli
+    sadece_aktif = client.get("/basvurular?durum=won_active").text
+    assert "İlan B" in sadece_aktif
+    assert "İlan A" not in sadece_aktif and "İlan C" not in sadece_aktif
+
+
+def test_basvurular_arama_kutusu_filtreler(client, tmp_path):
+    from scanner.dedupe import fingerprint
+    from scanner.models import Project
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "data" / "projects.db")
+    fps = []
+    for baslik, firma in [("SAP ABAP Danışmanı", "Acme"), ("Java Geliştirici", "Beta")]:
+        p = Project(source="test", source_id=baslik, url=f"http://x/{baslik}",
+                    title=baslik, company=firma)
+        p.fingerprint = fingerprint(p)
+        fps.append(p.fingerprint)
+        store.upsert([p])
+    store.close()
+    for fp in fps:
+        client.post("/status", data={"fingerprint": fp, "status": "applied"}, follow_redirects=False)
+
+    veri = client.get("/basvurular?q=abap").text
+    assert "SAP ABAP Danışmanı" in veri
+    assert "Java Geliştirici" not in veri
+
+
+def test_basvuru_kaldir_ana_listeye_geri_dondurur(client, tmp_path):
+    """Yanlislikla isaretlenen basvuru 'Kaldir' ile normal ilana doner."""
+    fp = _tek_ilan(tmp_path, title="Yanlış Tıklanan İlan", score=80)
+    client.post("/status", data={"fingerprint": fp, "status": "applied"}, follow_redirects=False)
+    assert "Yanlış Tıklanan İlan" not in client.get("/?min_score=0").text
+    assert "Yanlış Tıklanan İlan" in client.get("/basvurular").text
+
+    client.post("/status", data={"fingerprint": fp, "status": "new"}, follow_redirects=False)
+
+    assert "Yanlış Tıklanan İlan" not in client.get("/basvurular").text
+    assert "Yanlış Tıklanan İlan" in client.get("/?min_score=0").text
+
 
 def test_basvuru_sil_ilani_tamamen_kaldirir(client, tmp_path):
     fp = _tek_ilan(tmp_path, title="Silinecek İlan")

@@ -2,11 +2,20 @@
 from __future__ import annotations
 
 APP_NAME = "İlan Tarayıcı"
-VERSION = "1.9.1"
+VERSION = "1.9.2"
 RELEASE_DATE = "2026-09-04"
 
 #: Hakkinda penceresinde madde madde gosterilir - "bu surumde ne degisti".
 CHANGELOG = [
+    ("1.9.2", "2026-09-04", [
+        "Başvurular ekranındaki filtre genişletildi: 5 durumun her biri artık ayrı "
+        "ayrı seçilebiliyor (\"Olumlu (tümü)\" hâlâ duruyor), başlık/firma/kaynakta "
+        "arama kutusu ve durum güncellenmesi / skor / ilan tarihine göre sıralama "
+        "eklendi.",
+        "\"Kaldır\" düğmesi eklendi: yanlışlıkla \"Başvurdum\"a basılan bir ilan "
+        "başvuru takibinden çıkarılıp normal ilan listesine geri döner (Sil'den "
+        "farklı olarak ilan silinmez).",
+    ]),
     ("1.9.1", "2026-09-04", [
         "Başvurulan ilanlar artık ana listede diğerleriyle karışmıyor — hepsi "
         "\"Başvurular\" ekranına taşındı (Durum filtresinden açıkça istenirse ana "
