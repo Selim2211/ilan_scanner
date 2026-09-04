@@ -2,11 +2,25 @@
 from __future__ import annotations
 
 APP_NAME = "İlan Tarayıcı"
-VERSION = "1.8.0"
-RELEASE_DATE = "2026-09-02"
+VERSION = "1.9.0"
+RELEASE_DATE = "2026-09-04"
 
 #: Hakkinda penceresinde madde madde gosterilir - "bu surumde ne degisti".
 CHANGELOG = [
+    ("1.9.0", "2026-09-04", [
+        "Yeni \"Başvurular\" sekmesi: başvurduğunuz ilanları tek ekranda görün ve "
+        "sürecini işleyin — Başvuruldu, Olumsuz, Olumlu (henüz başlamadı / üzerinde "
+        "çalışılıyor / bitti). İlan artık gerekmiyorsa \"Sil\" ile veritabanından "
+        "tamamen kaldırılır (yeni bir yetkiyle korunur: İlanı tamamen sil).",
+        "Bildirimler ekranına \"Kapananları sil\" düğmesi eklendi — yeni ilan "
+        "bildirimlerine dokunmadan yalnızca kapanan ilan bildirimlerini temizler.",
+        "Ülke filtresinde bir bölge başlığına (örn. \"Avrupa\") tıklamak o "
+        "bölgedeki bütün ülkeleri tek seferde seçer / kaldırır.",
+        "freelancermap: ilan özeti artık düzgün çalışıyor. Liste sayfasında "
+        "açıklama olmadığı için özet yalnızca beceri etiketlerinden üretiliyordu; "
+        "artık özet ilk açıldığında ilanın kendi sayfasından tam açıklama çekilip "
+        "saklanıyor.",
+    ]),
     ("1.8.0", "2026-09-02", [
         "Ayarlar > Yapay zeka'ya \"Maliyet\" ekranı eklendi: her modelin harcadığı "
         "token ve tahmini TL tutarı günlük (son 24 saat), haftalık (son 7 gün) ve "

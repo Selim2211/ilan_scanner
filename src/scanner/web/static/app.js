@@ -573,6 +573,27 @@
       });
     }
     list.addEventListener("change", ozetle);
+
+    // Bolge basligina tiklayinca o bolgedeki (arama filtresinden gecen) ulkelerin
+    // hepsini sec; hepsi zaten seciliyse hepsini kaldir. "Avrupa" -> tek tiklada
+    // butun Avrupa ulkeleri.
+    list.querySelectorAll(".ms-group").forEach(function (bas) {
+      bas.addEventListener("click", function () {
+        const grup = [];
+        let node = bas.nextElementSibling;
+        while (node && !node.classList.contains("ms-group")) {
+          if (node.classList.contains("ms-item") && !node.hidden) {
+            grup.push(node.querySelector("input"));
+          }
+          node = node.nextElementSibling;
+        }
+        if (!grup.length) return;
+        const hepsiSecili = grup.every(function (k) { return k.checked; });
+        grup.forEach(function (k) { k.checked = !hepsiSecili; });
+        ozetle();
+      });
+    });
+
     const clear = root.querySelector(".ms-clear");
     if (clear) {
       clear.addEventListener("click", function () {

@@ -56,6 +56,8 @@ PERMISSION_GROUPS: list[tuple[str, list[tuple[str, str, str]]]] = [
          "İlanı elle kapatır."),
         ("flag_projects", "Sorunlu ilan işaretle",
          "Bölge kısıtlı / açılmayan ilanları işaretleme ve işareti kaldırma."),
+        ("delete_projects", "İlanı tamamen sil",
+         "Başvurular ekranındaki 'Sil' düğmesi: ilanı veritabanından kalıcı kaldırır."),
         ("sweep_links", "Listeyi canlı kontrol et",
          "Filtredeki ilanların linklerini açıp kapananları kapatır. Ağ trafiği üretir."),
         ("export", "Excel dışa aktar",

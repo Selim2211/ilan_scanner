@@ -20,6 +20,7 @@ sayfalama yerine BIRDEN COK anahtar kelime sayfasi taranip sonuclar birlestirili
 """
 from __future__ import annotations
 
+import httpx
 from bs4 import BeautifulSoup
 
 from ..models import Project
@@ -31,6 +32,36 @@ BASE = "https://www.freelancermap.com"
 KEYWORD_PAGE = BASE + "/projects/{keyword}"
 
 DEFAULT_KEYWORDS = ["sap-abap", "sap", "sap-hana", "sap-fiori", "sap-applications", "abap"]
+
+#: Liste kartinda ilan aciklamasi YOK - yalnizca beceri etiketleri var. Tam metin
+#: ancak ilan detay sayfasinda; ozet/puanlama icin oradan cekilir (bkz.
+#: `detail_description`). Bu yuzden karttan uretilen Project.description bos birakilir.
+_DESC_SELECTORS = ("div.project-body-description", "div.ql-editor", "[itemprop=description]")
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
+
+def detail_description(url: str, *, timeout: float = 20.0) -> str:
+    """freelancermap ilan detay sayfasindan tam aciklamayi ceker.
+
+    Panelde bir ilanin ozeti ilk kez acildiginda cagrilir; sonuc DB'ye yazilir
+    (storage.save_description), ayni ilan icin ikinci kez istek yapilmaz. Hata
+    ya da bos sonuc None yerine "" doner - cagiran eski davranisa duser.
+    """
+    try:
+        resp = httpx.get(url, timeout=timeout, follow_redirects=True,
+                         headers={"User-Agent": _BROWSER_UA})
+        resp.raise_for_status()
+    except Exception:                            # noqa: BLE001 - ozet kritik degil
+        return ""
+    soup = BeautifulSoup(resp.text, "lxml")
+    for selector in _DESC_SELECTORS:
+        el = soup.select_one(selector)
+        if el:
+            text = clean_text(el.get_text(" "))
+            if len(text) > 80:
+                return text
+    return ""
 
 
 class FreelancermapSource(BaseSource):
@@ -90,7 +121,8 @@ class FreelancermapSource(BaseSource):
                 duration=clean_text(self._text(card, "[data-testid=duration]")),
                 starts_at=clean_text(self._text(card, "[data-testid=beginningMonth]")),
                 skills=[s for s in skills if s],
-                description=" | ".join(s for s in skills if s),
+                # Kartta aciklama yok; detay sayfasindan lazy cekilir (detail_description).
+                description="",
                 posted_at=parse_date(clean_text(self._text(card, "[data-testid=created]"))),
             ))
         return projects

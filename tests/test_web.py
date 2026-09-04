@@ -642,3 +642,88 @@ def test_ai_anahtari_bos_birakilirsa_korunur(client, monkeypatch, tmp_path):
         "ai_enabled": "1", "ai_min_score": "30", "ai_model": "m", "ai_timeout": "30",
     }, follow_redirects=False)
     assert yazilanlar == []                 # .env'e hic dokunulmadi
+
+
+# --- kapanan bildirimleri temizle -----------------------------------------
+
+def test_bildirim_sil_sadece_kapananlar(client, tmp_path):
+    from scanner.storage import Storage
+    store = Storage(tmp_path / "data" / "projects.db")
+    store.add_notification("new", "Yeni ilan")
+    store.add_notification("closed", "Kapanan ilan A")
+    store.add_notification("closed", "Kapanan ilan B")
+    store.close()
+
+    client.post("/bildirimler/sil", data={"hepsi": "1", "kind": "closed"},
+                follow_redirects=False)
+
+    store = Storage(tmp_path / "data" / "projects.db")
+    kalan = store.notifications()
+    store.close()
+    kinds = sorted(n["kind"] for n in kalan)
+    assert kinds == ["new"]
+
+
+# --- basvuru takip ekrani ------------------------------------------------
+
+def test_basvurular_ekrani_ve_durum(client, tmp_path):
+    fp = _tek_ilan(tmp_path, title="SAP ABAP Başvuru")
+    client.post("/status", data={"fingerprint": fp, "status": "applied", "back": "/"},
+                follow_redirects=False)
+
+    sayfa = client.get("/basvurular")
+    assert sayfa.status_code == 200
+    assert "SAP ABAP Başvuru" in sayfa.text
+
+    # süreç durumunu güncelle
+    client.post("/status", data={"fingerprint": fp, "status": "won_active", "back": "/basvurular"},
+                follow_redirects=False)
+    from scanner.storage import Storage
+    store = Storage(tmp_path / "data" / "projects.db")
+    assert store.status_of(fp) == "won_active"
+    assert [r["mark"] for r in store.applications()] == ["won_active"]
+    store.close()
+
+
+def test_basvuru_sil_ilani_tamamen_kaldirir(client, tmp_path):
+    fp = _tek_ilan(tmp_path, title="Silinecek İlan")
+    client.post("/status", data={"fingerprint": fp, "status": "applied"}, follow_redirects=False)
+    client.post("/basvuru/sil", data={"fingerprint": fp}, follow_redirects=False)
+
+    from scanner.storage import Storage
+    store = Storage(tmp_path / "data" / "projects.db")
+    assert store.get_by_fingerprint(fp) is None
+    store.close()
+
+
+# --- freelancermap özet zenginleştirme ----------------------------------
+
+def test_freelancermap_ozet_detay_sayfasindan_zenginlesir(client, tmp_path, monkeypatch):
+    from scanner.dedupe import fingerprint
+    from scanner.models import Project
+    from scanner.storage import Storage
+    import scanner.web.app as app_mod
+
+    store = Storage(tmp_path / "data" / "projects.db")
+    p = Project(source="freelancermap", source_id="9", url="http://fm/9",
+                title="SAP ABAP Contract", description="SAP | ABAP", score=90)
+    p.fingerprint = fingerprint(p)
+    store.upsert([p])
+    store.close()
+    fp = p.fingerprint
+
+    uzun = ("We are looking for a senior SAP ABAP consultant for a fully remote "
+            "six month contract. Strong S/4HANA migration background required.")
+    from scanner.sources import freelancermap as fm
+    monkeypatch.setattr(fm, "detail_description", lambda url, **k: uzun)
+    # AI kapalı: eski davranış → ham açıklama özet olarak döner
+    monkeypatch.setattr(app_mod.ai_mod, "ozetle", lambda *a, **k: None)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    veri = client.get(f"/api/ozet?fingerprint={fp}").json()
+    assert veri["ok"] is True
+    assert "S/4HANA migration" in veri["summary"]
+
+    store = Storage(tmp_path / "data" / "projects.db")
+    assert "S/4HANA migration" in store.get_by_fingerprint(fp)["description"]
+    store.close()

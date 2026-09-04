@@ -28,6 +28,14 @@
     </form>
     {% if can('delete_notifications') and items %}
     <form method="post" action="/bildirimler/sil"
+          data-confirm="Kapanan ilan bildirimleri kalıcı olarak silinecek. Yeni ilan bildirimleri kalır."
+          data-confirm-label="Evet, kapananları sil">
+      <input type="hidden" name="hepsi" value="1">
+      <input type="hidden" name="kind" value="closed">
+      <input type="hidden" name="back" value="/bildirimler{% if only_unread %}?unread=1{% endif %}">
+      <button class="btn danger" type="submit">Kapananları sil</button>
+    </form>
+    <form method="post" action="/bildirimler/sil"
           data-confirm="Bütün bildirimler kalıcı olarak silinecek. Bu işlem geri alınamaz."
           data-confirm-label="Evet, hepsini sil">
       <input type="hidden" name="hepsi" value="1">

@@ -134,6 +134,10 @@ CREATE INDEX IF NOT EXISTS idx_ps_lookup ON profile_status(profile_id, status);
 """
 
 #: status: new | shortlist (takipte) | applied (basvuruldu) | mailed | ignored
+#:
+#: Basvuru sureci durumlari - "Basvurular" ekraninda (basvurular.html) yonetilir.
+#: Hepsi profile_status.status kolonunda serbest metin olarak tutulur.
+APPLICATION_STATUSES = ("applied", "rejected", "won_pending", "won_active", "won_done")
 
 MIGRATIONS = {
     "is_supply": "ALTER TABLE projects ADD COLUMN is_supply INTEGER DEFAULT 0",
@@ -643,6 +647,16 @@ class Storage:
             (lang, summary_en, fingerprint))
         self.conn.commit()
 
+    def save_description(self, fingerprint: str, text: str) -> None:
+        """Ilan aciklamasini gunceller. freelancermap gibi liste kartinda aciklama
+        vermeyen kaynaklarda, ilan detay sayfasindan cekilen tam metin buraya yazilir."""
+        text = (text or "").strip()
+        if not text:
+            return
+        self.conn.execute(
+            "UPDATE projects SET description = ? WHERE fingerprint = ?", (text, fingerprint))
+        self.conn.commit()
+
     def save_ai_summary(self, fingerprint: str, summary: str,
                         must_haves: list[str], model: str) -> None:
         """Yapay zeka ozetini saklar; ayni ilan bir daha ozetlenmez."""
@@ -764,6 +778,23 @@ class Storage:
                 (int(profile_id), fingerprint, status, _now()))
         self.conn.commit()
 
+    def applications(self, profile_id: int = 0) -> list[sqlite3.Row]:
+        """'Basvurular' ekranindaki ilanlar - basvuru sureci durumu olan her ilan.
+
+        `mark` sutunu ilanin bu profildeki durumu, `marked_at` durumun en son
+        degistirildigi an. Siralama: uzerinde calisilan > basvuruldu/bekleyen >
+        biten > olumsuz; her grup icinde en son guncellenen ustte.
+        """
+        order = ("CASE ps.status WHEN 'won_active' THEN 0 WHEN 'won_pending' THEN 1 "
+                 "WHEN 'applied' THEN 2 WHEN 'won_done' THEN 3 ELSE 4 END")
+        ph = ",".join("?" * len(APPLICATION_STATUSES))
+        sql = (f"SELECT projects.*, ps.status AS mark, ps.updated_at AS marked_at "
+               f"FROM projects JOIN profile_status ps "
+               f"  ON ps.fingerprint = projects.fingerprint AND ps.profile_id = ? "
+               f"WHERE ps.status IN ({ph}) "
+               f"ORDER BY {order}, ps.updated_at DESC")
+        return list(self.conn.execute(sql, [int(profile_id), *APPLICATION_STATUSES]))
+
     def status_of(self, fingerprint: str, profile_id: int = 0) -> str:
         row = self.conn.execute(
             "SELECT status FROM profile_status WHERE profile_id=? AND fingerprint=?",
@@ -853,11 +884,15 @@ class Storage:
         return cur.rowcount
 
     def delete_all_notifications(self, unread_only: bool = False,
-                                 profile_id: int | None = None) -> int:
+                                 profile_id: int | None = None,
+                                 kind: str | None = None) -> int:
         sql = "DELETE FROM notifications"
         where, params = [], []
         if unread_only:
             where.append("read_at IS NULL")
+        if kind:
+            where.append("kind = ?")
+            params.append(kind)
         if profile_id is not None:
             where.append("COALESCE(profile_id, 0) = ?")
             params.append(int(profile_id))

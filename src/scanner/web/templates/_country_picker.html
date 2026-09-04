@@ -21,7 +21,9 @@
     </div>
     <div class="ms-list" role="group">
       {% for bolge, items in groups %}
-      <p class="ms-group">{{ bolge }}</p>
+      <button type="button" class="ms-group" title="{{ bolge }} bölgesindeki ülkelerin hepsini seç / kaldır">
+        <span>{{ bolge }}</span><span class="ms-group-all">tümünü seç</span>
+      </button>
       {% for c in items %}
       <label class="ms-item" data-search="{{ c.name|lower }} {{ c.code|lower }}">
         <input type="checkbox" name="{{ name }}" value="{{ c.code }}"

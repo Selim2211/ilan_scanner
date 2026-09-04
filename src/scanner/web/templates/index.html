@@ -86,7 +86,9 @@
   {{ chip(filters.mode == 'remote' and filters.contract, '/?mode=remote&contract=1&sort=date',
           'Uzaktan + proje bazlı') }}
   {{ chip(filters.status == 'shortlist', '/?status=shortlist', 'Takip listem', 'star') }}
-  {{ chip(filters.status == 'applied', '/?status=applied', 'Başvurduklarım', 'check') }}
+  <a class="chip with-icon icon-check" href="/basvurular" title="Başvuru takip ekranı">
+    {{ svg('check', 14) }}Başvurularım
+  </a>
 </div>
 
 {# ---- 3. detayli filtreler: gruplara ayrildi, isaret kutulari tek serit oldu ---- #}
@@ -150,6 +152,10 @@
           <option value="new" {% if filters.status == "new" %}selected{% endif %}>Yeni</option>
           <option value="shortlist" {% if filters.status == "shortlist" %}selected{% endif %}>Takipte</option>
           <option value="applied" {% if filters.status == "applied" %}selected{% endif %}>Başvuruldu</option>
+          <option value="rejected" {% if filters.status == "rejected" %}selected{% endif %}>Olumsuz</option>
+          <option value="won_pending" {% if filters.status == "won_pending" %}selected{% endif %}>Olumlu — başlamadı</option>
+          <option value="won_active" {% if filters.status == "won_active" %}selected{% endif %}>Olumlu — çalışılıyor</option>
+          <option value="won_done" {% if filters.status == "won_done" %}selected{% endif %}>Olumlu — bitti</option>
         </select>
       </div>
       <div class="field">
@@ -313,7 +319,11 @@
                 title="Kaynağın listesinde görünmüyor; linki kontrol ediliyor. Yayındaysa işaret kalkar.">KONTROL EDİLİYOR</span>{% endif %}
           {% if row["is_supply"] == 1 %}<span class="pill closed">ARZ · HİZMET İLANI</span>{% endif %}
           {% if row["mark"] == "shortlist" %}<span class="pill contract">TAKİPTE</span>
-          {% elif row["mark"] == "applied" %}<span class="pill contract">BAŞVURULDU</span>{% endif %}
+          {% elif row["mark"] == "applied" %}<span class="pill contract">BAŞVURULDU</span>
+          {% elif row["mark"] == "rejected" %}<span class="pill closed">OLUMSUZ</span>
+          {% elif row["mark"] == "won_pending" %}<span class="pill fresh">OLUMLU · BAŞLAMADI</span>
+          {% elif row["mark"] == "won_active" %}<span class="pill fresh">OLUMLU · ÇALIŞILIYOR</span>
+          {% elif row["mark"] == "won_done" %}<span class="pill fresh">OLUMLU · BİTTİ</span>{% endif %}
         </div>
 
         <div class="meta">

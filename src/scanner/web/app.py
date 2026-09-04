@@ -42,7 +42,7 @@ from ..scheduler import from_config as scheduler_from_config
 from ..sources import REGISTRY, is_custom
 from ..sources.custom import FIELD_SPEC
 from ..sources.custom import KINDS as CUSTOM_KINDS
-from ..storage import Storage, country_values
+from ..storage import APPLICATION_STATUSES, Storage, country_values
 from ..translate import detect_language, translate as translate_text
 from ..version import APP_NAME, VERSION
 
@@ -50,7 +50,18 @@ BASE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 #: Ilan uzerindeki isaretler. "Kaldir/gizle" kaldirildi: begenilmeyen ilan
 #: icin "Kapandi" dugmesi kullaniliyor, ayri bir gizleme mekanizmasi yok.
-STATUSES = {"new", "shortlist", "applied"}
+#: Basvuru sureci durumlari (applied/rejected/won_*) da gecerli isaretlerdir -
+#: "Basvurular" ekranindan konur (bkz. storage.APPLICATION_STATUSES).
+STATUSES = {"new", "shortlist", *APPLICATION_STATUSES}
+
+#: "Basvurular" ekranindaki durum etiketleri (anahtar -> Turkce).
+APPLICATION_LABELS = {
+    "applied": "Başvuruldu",
+    "rejected": "Olumsuz",
+    "won_pending": "Olumlu — henüz başlamadı",
+    "won_active": "Olumlu — üzerinde çalışılıyor",
+    "won_done": "Olumlu — bitti",
+}
 
 #: Giris gerektirmeyen yollar. Baska her sey oturum ister.
 PUBLIC_PATHS = ("/giris", "/static", "/favicon.ico")
@@ -74,7 +85,7 @@ def list_filters(min_score: int = 0, source: str = "", q: str = "", exclude: str
         work_mode=mode or None, contract_only=bool(contract), has_budget=bool(budget),
         country=country or None, max_age_days=int(days) or None,
         only_new=(status == "new"), shortlist=(status == "shortlist"),
-        status=status if status in ("applied",) else None,
+        status=status if status in APPLICATION_STATUSES else None,
         closed_only=bool(closed), include_supply=bool(supply),
         date_from=date_from or None, date_to=date_to or None,
         date_field=date_field or "posted",
@@ -616,6 +627,16 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             baslik = row["title"] or ""
             ham = (row["description"] or "").strip()
 
+            # --- 0. freelancermap: aciklama liste kartinda gelmiyor ----
+            # Detay sayfasindan tam metni bir kez cekip DB'ye yaz; sonraki
+            # acilislarda buradan okunur. (bkz. sources/freelancermap.py)
+            if row["source"] == "freelancermap" and len(ham) < 160 and row["url"]:
+                from ..sources.freelancermap import detail_description
+                zengin = detail_description(row["url"])
+                if zengin:
+                    store.save_description(fingerprint, zengin)
+                    ham = zengin
+
             # --- 1. AI onbellegi ---------------------------------------
             ai_ozet = (row["ai_summary"] or "").strip()
             if ai_ozet:
@@ -784,6 +805,46 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             store.close()
         return RedirectResponse(back or "/", status_code=303)
 
+    @app.get("/basvurular")
+    def applications_page(request: Request):
+        """Başvuru takip ekranı: başvurulan ilanlar ve süreç durumları."""
+        _require(request, "mark_status")
+        pid = profile_of(request)
+        store = open_store()
+        try:
+            rows = store.applications(pid)
+            unread = store.unread_count(pid)
+            newest_seen = store.newest_seen_at()
+        finally:
+            store.close()
+        sayimlar = {key: 0 for key in APPLICATION_LABELS}
+        for r in rows:
+            sayimlar[r["mark"]] = sayimlar.get(r["mark"], 0) + 1
+        context = {
+            **base_context(request),
+            "active_tab": "applications",
+            "rows": rows,
+            "labels": APPLICATION_LABELS,
+            "counts": sayimlar,
+            "can_delete": bool(user_of(request) and user_of(request).can("delete_projects")),
+            "scan": scan_state(),
+            "unread": unread,
+            "newest_seen": newest_seen,
+        }
+        return TEMPLATES.TemplateResponse(request, "basvurular.html", context)
+
+    @app.post("/basvuru/sil")
+    def delete_application(request: Request, fingerprint: str = Form(...),
+                           back: str = Form("/basvurular")):
+        """İlanı veritabanından tamamen siler (Başvurular ekranındaki 'Sil')."""
+        _require(request, "delete_projects")
+        store = open_store()
+        try:
+            store.delete_projects([fingerprint])
+        finally:
+            store.close()
+        return RedirectResponse(back or "/basvurular", status_code=303)
+
     @app.post("/bildirimler/okundu")
     def mark_read(request: Request, notification_id: int | None = Form(None),
                   back: str = Form("/bildirimler")):
@@ -795,13 +856,17 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
 
     @app.post("/bildirimler/sil")
     def delete_notification(request: Request, notification_id: int | None = Form(None),
-                            hepsi: int = Form(0), back: str = Form("/bildirimler")):
+                            hepsi: int = Form(0), kind: str = Form(""),
+                            back: str = Form("/bildirimler")):
         _require(request, "delete_notifications")
         store = open_store()
         try:
             if hepsi:
-                # yalnizca etkin profilin akisi silinir, diger profilinki durur
-                store.delete_all_notifications(profile_id=profile_of(request))
+                # yalnizca etkin profilin akisi silinir, diger profilinki durur.
+                # kind verilirse (ornegin "closed") sadece o turdekiler.
+                store.delete_all_notifications(
+                    profile_id=profile_of(request),
+                    kind=kind if kind in ("closed", "new") else None)
             elif notification_id is not None:
                 store.delete_notification(notification_id)
         finally:

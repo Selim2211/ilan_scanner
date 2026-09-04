@@ -331,10 +331,16 @@ select { appearance:none; padding-right:34px;
 .ms-head input { min-height:36px; font-size:13.5px; }
 .ms-list { max-height:270px; overflow-y:auto; padding:6px; }
 .ms-group {
+  display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%;
   font:600 10.5px/1 var(--font-mono); letter-spacing:.1em; text-transform:uppercase;
-  color:var(--ink-3); margin:10px 0 5px; padding:0 8px;
+  color:var(--ink-3); margin:10px 0 5px; padding:5px 8px;
+  background:none; border:0; border-radius:var(--r-sm); cursor:pointer; text-align:left;
 }
 .ms-group:first-child { margin-top:2px; }
+.ms-group:hover { background:var(--surface-2); color:var(--ink); }
+.ms-group .ms-group-all {
+  font-size:10px; letter-spacing:.04em; text-transform:none; color:var(--signal); opacity:.85;
+}
 .ms-item {
   display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:var(--r-sm);
   font-size:13.5px; color:var(--ink-2); cursor:pointer;

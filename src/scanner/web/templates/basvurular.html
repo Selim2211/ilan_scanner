@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Başvurular · İlan Tarayıcı{% endblock %}
+
+{% block style %}
+<style>
+  .headline { display:flex; align-items:center; justify-content:space-between; gap:12px;
+              flex-wrap:wrap; margin:2px 2px 14px; }
+  .headline h1 { margin:0; font-size:21px; }
+  .app-counts { display:flex; gap:8px; flex-wrap:wrap; margin:0 2px 16px; }
+  .app-counts .pill { font-size:11px; }
+  .app-row { display:grid; grid-template-columns:1fr auto; gap:12px 16px; align-items:start;
+             padding:14px 16px; }
+  .app-row .main h3 { margin:0 0 4px; font-size:15px; }
+  .app-row .main h3 a { color:var(--ink); }
+  .app-row .meta { font:500 12px/1.5 var(--font-mono); color:var(--ink-3); }
+  .app-row .meta .score { color:var(--violet); }
+  .app-row .side { display:flex; flex-direction:column; gap:8px; align-items:stretch;
+                   min-width:210px; }
+  .app-row .side form { display:flex; gap:6px; }
+  .app-row select { flex:1; padding:7px 8px; border-radius:var(--r-sm);
+                    border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
+                    font-size:13px; }
+  .app-row .side .links { display:flex; gap:8px; justify-content:flex-end; }
+  @media (max-width:640px) {
+    .app-row { grid-template-columns:1fr; }
+    .app-row .side { min-width:0; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="headline">
+  <h1>Başvurular</h1>
+  <a class="btn" href="/">← İlan listesi</a>
+</div>
+
+<div class="app-counts">
+  {% for key, label in labels.items() %}
+    {% if counts[key] %}
+    <span class="pill {% if key == 'rejected' %}closed{% elif key == 'applied' %}contract{% else %}fresh{% endif %}">
+      {{ label }} · {{ counts[key] }}
+    </span>
+    {% endif %}
+  {% endfor %}
+</div>
+
+{% if rows %}
+<div class="feed">
+  {% for r in rows %}
+  <article class="card app-row">
+    <div class="main">
+      <h3><a href="{{ r['url'] }}" target="_blank" rel="noopener">{{ r['title'] }}</a></h3>
+      <div class="meta">
+        {% if r['company'] %}{{ r['company'] }} · {% endif %}{{ r['source'] }}
+        {% if r['score'] %} · <span class="score">{{ r['score'] }} puan</span>{% endif %}
+        {% if r['marked_at'] %} · durum {{ r['marked_at'] | since }} güncellendi{% endif %}
+        {% if r['is_active'] == 0 %} · <b>ilan kapandı</b>{% endif %}
+      </div>
+    </div>
+    <div class="side">
+      <form method="post" action="/status">
+        <input type="hidden" name="fingerprint" value="{{ r['fingerprint'] }}">
+        <input type="hidden" name="back" value="/basvurular">
+        <select name="status" onchange="this.form.submit()" aria-label="Başvuru durumu">
+          {% for key, label in labels.items() %}
+          <option value="{{ key }}" {% if r['mark'] == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-sm" type="submit">Kaydet</button>
+      </form>
+      <div class="links">
+        {% if can_delete %}
+        <form method="post" action="/basvuru/sil"
+              data-confirm="“{{ r['title'] }}” ilanı veritabanından tamamen silinecek. Bu işlem geri alınamaz."
+              data-confirm-label="Evet, sil">
+          <input type="hidden" name="fingerprint" value="{{ r['fingerprint'] }}">
+          <button class="btn btn-sm danger" type="submit">Sil</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+  <div class="card empty">
+    <svg class="art" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+    </svg>
+    <h2>Henüz başvuru yok</h2>
+    <p>İlan listesinde bir ilanı “Başvurdum” olarak işaretleyin; buraya düşer ve
+       süreç durumunu (olumsuz, olumlu, bitti…) buradan takip edersiniz.</p>
+  </div>
+{% endif %}
+{% endblock %}
