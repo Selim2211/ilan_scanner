@@ -1013,6 +1013,13 @@ class Storage:
         if status:
             sql += f" AND {mark} = ?"
             params.append(status)
+        else:
+            # Basvuru surecindeki ilan (basvuruldu/olumsuz/olumlu...) ana listede
+            # digerleriyle karismasin - kendi ekrani var (/basvurular). Yalnizca
+            # status acikca bu durumlardan biri istenirse yukarida gosterilir.
+            ph = ",".join("?" * len(APPLICATION_STATUSES))
+            sql += f" AND {mark} NOT IN ({ph})"
+            params += list(APPLICATION_STATUSES)
         if source:
             sql += " AND source = ?"
             params.append(source)

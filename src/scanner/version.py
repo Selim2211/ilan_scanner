@@ -2,11 +2,19 @@
 from __future__ import annotations
 
 APP_NAME = "İlan Tarayıcı"
-VERSION = "1.9.0"
+VERSION = "1.9.1"
 RELEASE_DATE = "2026-09-04"
 
 #: Hakkinda penceresinde madde madde gosterilir - "bu surumde ne degisti".
 CHANGELOG = [
+    ("1.9.1", "2026-09-04", [
+        "Başvurulan ilanlar artık ana listede diğerleriyle karışmıyor — hepsi "
+        "\"Başvurular\" ekranına taşındı (Durum filtresinden açıkça istenirse ana "
+        "listede de görünebilir).",
+        "Başvurular ekranında her durum kendi rengiyle gösteriliyor (kart kenarı "
+        "ve durum etiketi) ve üstte durum filtresi eklendi: Hepsi / Başvuruldu / "
+        "Olumsuz / Olumlu (tümü).",
+    ]),
     ("1.9.0", "2026-09-04", [
         "Yeni \"Başvurular\" sekmesi: başvurduğunuz ilanları tek ekranda görün ve "
         "sürecini işleyin — Başvuruldu, Olumsuz, Olumlu (henüz başlamadı / üzerinde "

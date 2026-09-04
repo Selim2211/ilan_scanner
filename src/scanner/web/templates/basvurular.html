@@ -6,16 +6,37 @@
   .headline { display:flex; align-items:center; justify-content:space-between; gap:12px;
               flex-wrap:wrap; margin:2px 2px 14px; }
   .headline h1 { margin:0; font-size:21px; }
-  .app-counts { display:flex; gap:8px; flex-wrap:wrap; margin:0 2px 16px; }
-  .app-counts .pill { font-size:11px; }
+  .app-filters { display:flex; gap:8px; flex-wrap:wrap; margin:0 2px 16px; }
+  .app-filters a.chip { font:600 11.5px/1 var(--font-mono); }
+
+  .status-badge {
+    display:inline-flex; align-items:center; gap:6px; padding:4px 10px;
+    border-radius:var(--r-pill); font:600 11px/1 var(--font-mono);
+    text-transform:uppercase; letter-spacing:.03em; width:fit-content;
+  }
+  .status-badge.st-applied      { background:var(--violet-soft); color:var(--violet); }
+  .status-badge.st-rejected     { background:var(--coral-soft);  color:var(--coral); }
+  .status-badge.st-won_pending  { background:var(--amber-soft);  color:var(--amber); }
+  .status-badge.st-won_active   { background:var(--signal-soft); color:var(--signal); }
+  .status-badge.st-won_done     { background:var(--slate-soft);  color:var(--ink-2); }
+  /* Ayni renk semasi ust ozet cipleri icin de kullanilir */
+  a.chip.st-applied.active,     a.chip.st-applied:hover      { border-color:var(--violet); color:var(--violet); }
+  a.chip.st-rejected.active,    a.chip.st-rejected:hover     { border-color:var(--coral);  color:var(--coral); }
+  a.chip.st-won.active,         a.chip.st-won:hover          { border-color:var(--signal); color:var(--signal); }
+
   .app-row { display:grid; grid-template-columns:1fr auto; gap:12px 16px; align-items:start;
-             padding:14px 16px; }
+             padding:14px 16px; border-left:3px solid var(--line); }
+  .app-row.st-applied     { border-left-color:var(--violet); }
+  .app-row.st-rejected    { border-left-color:var(--coral); }
+  .app-row.st-won_pending { border-left-color:var(--amber); }
+  .app-row.st-won_active  { border-left-color:var(--signal); }
+  .app-row.st-won_done    { border-left-color:var(--ink-3); }
   .app-row .main h3 { margin:0 0 4px; font-size:15px; }
   .app-row .main h3 a { color:var(--ink); }
-  .app-row .meta { font:500 12px/1.5 var(--font-mono); color:var(--ink-3); }
+  .app-row .meta { font:500 12px/1.5 var(--font-mono); color:var(--ink-3); margin:0 0 8px; }
   .app-row .meta .score { color:var(--violet); }
   .app-row .side { display:flex; flex-direction:column; gap:8px; align-items:stretch;
-                   min-width:210px; }
+                   min-width:230px; }
   .app-row .side form { display:flex; gap:6px; }
   .app-row select { flex:1; padding:7px 8px; border-radius:var(--r-sm);
                     border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
@@ -34,20 +55,17 @@
   <a class="btn" href="/">← İlan listesi</a>
 </div>
 
-<div class="app-counts">
-  {% for key, label in labels.items() %}
-    {% if counts[key] %}
-    <span class="pill {% if key == 'rejected' %}closed{% elif key == 'applied' %}contract{% else %}fresh{% endif %}">
-      {{ label }} · {{ counts[key] }}
-    </span>
-    {% endif %}
-  {% endfor %}
+<div class="app-filters">
+  <a class="chip {% if not durum %}active{% endif %}" href="/basvurular">Hepsi · {{ total_count }}</a>
+  <a class="chip st-applied {% if durum == 'applied' %}active{% endif %}" href="/basvurular?durum=applied">Başvuruldu · {{ group_counts.applied }}</a>
+  <a class="chip st-rejected {% if durum == 'rejected' %}active{% endif %}" href="/basvurular?durum=rejected">Olumsuz · {{ group_counts.rejected }}</a>
+  <a class="chip st-won {% if durum == 'won' %}active{% endif %}" href="/basvurular?durum=won">Olumlu (tümü) · {{ group_counts.won }}</a>
 </div>
 
 {% if rows %}
 <div class="feed">
   {% for r in rows %}
-  <article class="card app-row">
+  <article class="card app-row st-{{ r['mark'] }}">
     <div class="main">
       <h3><a href="{{ r['url'] }}" target="_blank" rel="noopener">{{ r['title'] }}</a></h3>
       <div class="meta">
@@ -56,11 +74,12 @@
         {% if r['marked_at'] %} · durum {{ r['marked_at'] | since }} güncellendi{% endif %}
         {% if r['is_active'] == 0 %} · <b>ilan kapandı</b>{% endif %}
       </div>
+      <span class="status-badge st-{{ r['mark'] }}">{{ labels[r['mark']] }}</span>
     </div>
     <div class="side">
       <form method="post" action="/status">
         <input type="hidden" name="fingerprint" value="{{ r['fingerprint'] }}">
-        <input type="hidden" name="back" value="/basvurular">
+        <input type="hidden" name="back" value="/basvurular{% if durum %}?durum={{ durum }}{% endif %}">
         <select name="status" onchange="this.form.submit()" aria-label="Başvuru durumu">
           {% for key, label in labels.items() %}
           <option value="{{ key }}" {% if r['mark'] == key %}selected{% endif %}>{{ label }}</option>
@@ -74,6 +93,7 @@
               data-confirm="“{{ r['title'] }}” ilanı veritabanından tamamen silinecek. Bu işlem geri alınamaz."
               data-confirm-label="Evet, sil">
           <input type="hidden" name="fingerprint" value="{{ r['fingerprint'] }}">
+          <input type="hidden" name="back" value="/basvurular{% if durum %}?durum={{ durum }}{% endif %}">
           <button class="btn btn-sm danger" type="submit">Sil</button>
         </form>
         {% endif %}
@@ -88,9 +108,14 @@
          stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
     </svg>
-    <h2>Henüz başvuru yok</h2>
-    <p>İlan listesinde bir ilanı “Başvurdum” olarak işaretleyin; buraya düşer ve
-       süreç durumunu (olumsuz, olumlu, bitti…) buradan takip edersiniz.</p>
+    {% if durum %}
+      <h2>Bu durumda ilan yok</h2>
+      <p>Filtreyi <a href="/basvurular">temizleyin</a> ya da başka bir durum seçin.</p>
+    {% else %}
+      <h2>Henüz başvuru yok</h2>
+      <p>İlan listesinde bir ilanı "Başvurdum" olarak işaretleyin; buraya düşer ve
+         süreç durumunu (olumsuz, olumlu, bitti…) buradan takip edersiniz.</p>
+    {% endif %}
   </div>
 {% endif %}
 {% endblock %}

@@ -63,6 +63,12 @@ APPLICATION_LABELS = {
     "won_done": "Olumlu — bitti",
 }
 
+#: Ayni ekranda "sadece olumlu" gibi gruplu filtre icin - won_* uc durum tek grupta.
+APPLICATION_GROUPS = {
+    "applied": ("applied",), "rejected": ("rejected",),
+    "won": ("won_pending", "won_active", "won_done"),
+}
+
 #: Giris gerektirmeyen yollar. Baska her sey oturum ister.
 PUBLIC_PATHS = ("/giris", "/static", "/favicon.ico")
 
@@ -806,26 +812,37 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         return RedirectResponse(back or "/", status_code=303)
 
     @app.get("/basvurular")
-    def applications_page(request: Request):
-        """Başvuru takip ekranı: başvurulan ilanlar ve süreç durumları."""
+    def applications_page(request: Request, durum: str = ""):
+        """Başvuru takip ekranı: başvurulan ilanlar ve süreç durumları.
+
+        `durum` (applied/rejected/won) sayfayı daraltır - "won" üç olumlu alt
+        durumu (henüz başlamadı/çalışılıyor/bitti) tek grupta filtreler.
+        """
         _require(request, "mark_status")
         pid = profile_of(request)
         store = open_store()
         try:
-            rows = store.applications(pid)
+            hepsi = store.applications(pid)
             unread = store.unread_count(pid)
             newest_seen = store.newest_seen_at()
         finally:
             store.close()
         sayimlar = {key: 0 for key in APPLICATION_LABELS}
-        for r in rows:
+        for r in hepsi:
             sayimlar[r["mark"]] = sayimlar.get(r["mark"], 0) + 1
+        grup_sayim = {grup: sum(sayimlar.get(k, 0) for k in keys)
+                     for grup, keys in APPLICATION_GROUPS.items()}
+        secili_durumlar = APPLICATION_GROUPS.get(durum)
+        rows = [r for r in hepsi if r["mark"] in secili_durumlar] if secili_durumlar else hepsi
         context = {
             **base_context(request),
             "active_tab": "applications",
             "rows": rows,
             "labels": APPLICATION_LABELS,
             "counts": sayimlar,
+            "group_counts": grup_sayim,
+            "total_count": len(hepsi),
+            "durum": durum,
             "can_delete": bool(user_of(request) and user_of(request).can("delete_projects")),
             "scan": scan_state(),
             "unread": unread,

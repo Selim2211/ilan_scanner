@@ -685,6 +685,48 @@ def test_basvurular_ekrani_ve_durum(client, tmp_path):
     store.close()
 
 
+def test_basvurulan_ilan_ana_listeden_kalkar(client, tmp_path):
+    """Basvuru surecindeki ilan varsayilan listede digerleriyle karismaz."""
+    fp = _tek_ilan(tmp_path, title="SAP ABAP Gizlenecek", score=80)
+    assert fp in client.get("/?min_score=0").text
+
+    client.post("/status", data={"fingerprint": fp, "status": "applied"}, follow_redirects=False)
+    assert "SAP ABAP Gizlenecek" not in client.get("/?min_score=0").text
+
+    # ama Durum filtresiyle acikca istenirse yine gorunur
+    assert "SAP ABAP Gizlenecek" in client.get("/?min_score=0&status=applied").text
+
+
+def test_basvurular_durum_grubu_filtreler(client, tmp_path):
+    from scanner.dedupe import fingerprint
+    from scanner.models import Project
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "data" / "projects.db")
+    fps = []
+    for i, baslik in enumerate(["A", "B", "C"]):
+        p = Project(source="test", source_id=str(i), url=f"http://x/{i}", title=f"İlan {baslik}")
+        p.fingerprint = fingerprint(p)
+        fps.append(p.fingerprint)
+        store.upsert([p])
+    store.close()
+
+    client.post("/status", data={"fingerprint": fps[0], "status": "applied"}, follow_redirects=False)
+    client.post("/status", data={"fingerprint": fps[1], "status": "won_active"}, follow_redirects=False)
+    client.post("/status", data={"fingerprint": fps[2], "status": "won_done"}, follow_redirects=False)
+
+    tumu = client.get("/basvurular").text
+    assert "İlan A" in tumu and "İlan B" in tumu and "İlan C" in tumu
+
+    olumlu = client.get("/basvurular?durum=won").text
+    assert "İlan A" not in olumlu
+    assert "İlan B" in olumlu and "İlan C" in olumlu
+
+    basvuruldu = client.get("/basvurular?durum=applied").text
+    assert "İlan A" in basvuruldu
+    assert "İlan B" not in basvuruldu and "İlan C" not in basvuruldu
+
+
 def test_basvuru_sil_ilani_tamamen_kaldirir(client, tmp_path):
     fp = _tek_ilan(tmp_path, title="Silinecek İlan")
     client.post("/status", data={"fingerprint": fp, "status": "applied"}, follow_redirects=False)
