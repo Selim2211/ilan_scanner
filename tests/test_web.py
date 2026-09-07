@@ -709,6 +709,65 @@ def test_ilan_word_bilinmeyen_fingerprint_404(client):
     assert client.get("/ilan/yok/word").status_code == 404
 
 
+# --- "Dışa aktar" ekrani (coklu secim -> xlsx) --------------------------
+
+def test_disari_aktar_ekrani_filtreli_liste(client, tmp_path):
+    from scanner.dedupe import fingerprint
+    from scanner.models import Project
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "data" / "projects.db")
+    for i, (t, src) in enumerate([("SAP ABAP Remote", "jooble"), ("Java Dev", "reed")]):
+        p = Project(source=src, source_id=str(i), url=f"http://x/{i}", title=t, score=70)
+        p.fingerprint = fingerprint(p)
+        store.upsert([p])
+    store.close()
+
+    hepsi = client.get("/disari-aktar?min_score=0")
+    assert hepsi.status_code == 200
+    assert "SAP ABAP Remote" in hepsi.text and "Java Dev" in hepsi.text
+    # "tümünü seç" kutusu YOK
+    assert 'id="select-all"' not in hepsi.text
+
+    suzulmus = client.get("/disari-aktar?min_score=0&q=abap").text
+    assert "SAP ABAP Remote" in suzulmus and "Java Dev" not in suzulmus
+
+
+def test_disari_aktar_secilenleri_xlsx_verir(client, tmp_path):
+    import io
+    import zipfile
+    from scanner.dedupe import fingerprint
+    from scanner.models import Project
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "data" / "projects.db")
+    fps = []
+    for i in range(3):
+        p = Project(source="jooble", source_id=str(i), url=f"http://x/{i}",
+                    title=f"İlan {i}", score=60, keywords_hit=["abap"])
+        p.fingerprint = fingerprint(p)
+        fps.append(p.fingerprint)
+        store.upsert([p])
+    store.close()
+
+    r = client.post("/disari-aktar", data={"fp": [fps[0], fps[2]]})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    assert "secili-ilanlar" in r.headers["content-disposition"]
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(r.content))
+    ws = wb.active
+    basliklar = [c.value for c in ws[1]]
+    assert "Güncellik" in basliklar and "Skor" in basliklar and "Önemli hususlar" in basliklar
+    assert ws.max_row == 3                              # 2 seçilen + başlık satırı
+
+
+def test_disari_aktar_bos_secim_geri_doner(client):
+    r = client.post("/disari-aktar", data={}, follow_redirects=False)
+    assert r.status_code == 303
+
+
 def test_basvurulan_ilan_ana_listeden_kalkar(client, tmp_path):
     """Basvuru surecindeki ilan varsayilan listede digerleriyle karismaz."""
     fp = _tek_ilan(tmp_path, title="SAP ABAP Gizlenecek", score=80)

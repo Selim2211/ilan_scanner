@@ -2,11 +2,18 @@
 from __future__ import annotations
 
 APP_NAME = "İlan Tarayıcı"
-VERSION = "1.11.0"
+VERSION = "1.12.0"
 RELEASE_DATE = "2026-09-07"
 
 #: Hakkinda penceresinde madde madde gosterilir - "bu surumde ne degisti".
 CHANGELOG = [
+    ("1.12.0", "2026-09-07", [
+        "İlan listesine \"Excel'e aktar\" eklendi: açılan ekranda filtreyle listeyi "
+        "daraltıp ilanları tek tek seçersiniz (toplu seçim yok), seçilenler "
+        "güncellik / skor / başlık / tarih / çalışma şekli / firma / bütçe / durum "
+        "/ önemli hususlar / bağlantı sütunlarıyla biçimli bir Excel dosyasına "
+        "aktarılır.",
+    ]),
     ("1.11.0", "2026-09-07", [
         "Her ilanın yanına mavi \"Word\" düğmesi eklendi: ilanı başlık, künye "
         "tablosu, yapay zeka özeti, olmazsa olmaz koşullar, eşleşen kelimeler ve "

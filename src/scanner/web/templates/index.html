@@ -15,6 +15,7 @@
   {%- elif name == "alert" -%}<circle cx="12" cy="12" r="9"/><path d="M12 8v4.5M12 16h.01"/>
   {%- elif name == "info" -%}<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>
   {%- elif name == "word" -%}<path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z"/><path d="m8.5 12 1.3 5 1.7-4 1.7 4 1.3-5"/>
+  {%- elif name == "sheet" -%}<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16M15 4v16"/>
   {%- elif name == "grid" -%}<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>
   {%- elif name == "rows" -%}<rect x="3" y="4" width="18" height="5" rx="1.5"/><rect x="3" y="15" width="18" height="5" rx="1.5"/>
   {%- endif -%}
@@ -102,143 +103,7 @@
     <span class="chev">{{ svg("chev", 18) }}</span>
   </summary>
 
-  <form class="filters" method="get" action="/">
-    <p class="filter-legend">Ne aranıyor</p>
-    <div class="filter-group">
-      <div class="field">
-        <label for="f-q">Ara</label>
-        <input id="f-q" type="search" name="q" value="{{ filters.q }}" placeholder="başlık, firma, açıklama">
-      </div>
-      <div class="field">
-        <label for="f-ex">Hariç tut</label>
-        <input id="f-ex" type="text" name="exclude" value="{{ filters.exclude }}" placeholder="örn: intern, onsite">
-      </div>
-      <div class="field">
-        <label for="f-score">Min skor</label>
-        <input id="f-score" type="number" name="min_score" value="{{ filters.min_score }}">
-      </div>
-    </div>
-
-    <p class="filter-legend">Kapsam</p>
-    <div class="filter-group">
-      <div class="field">
-        <label for="f-mode">Çalışma şekli</label>
-        <select id="f-mode" name="mode">
-          <option value="">Hepsi</option>
-          <option value="remote" {% if filters.mode == "remote" %}selected{% endif %}>Uzaktan</option>
-          <option value="remote_or_hybrid" {% if filters.mode == "remote_or_hybrid" %}selected{% endif %}>Uzaktan + hibrit</option>
-          <option value="hybrid" {% if filters.mode == "hybrid" %}selected{% endif %}>Hibrit</option>
-          <option value="onsite" {% if filters.mode == "onsite" %}selected{% endif %}>Yerinde</option>
-          <option value="unknown" {% if filters.mode == "unknown" %}selected{% endif %}>Belirsiz</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="f-source">Kaynak</label>
-        <select id="f-source" name="source">
-          <option value="">Hepsi</option>
-          {% for s in sources %}<option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label>Ülke</label>
-        {% with name="country", selected=filters.country, groups=country_groups,
-                extras=country_extra, counts=True %}
-          {% include "_country_picker.html" %}
-        {% endwith %}
-      </div>
-      <div class="field">
-        <label for="f-status">Durum</label>
-        <select id="f-status" name="status">
-          <option value="">Hepsi</option>
-          <option value="new" {% if filters.status == "new" %}selected{% endif %}>Yeni</option>
-          <option value="shortlist" {% if filters.status == "shortlist" %}selected{% endif %}>Takipte</option>
-          <option value="applied" {% if filters.status == "applied" %}selected{% endif %}>Başvuruldu</option>
-          <option value="rejected" {% if filters.status == "rejected" %}selected{% endif %}>Olumsuz</option>
-          <option value="won_pending" {% if filters.status == "won_pending" %}selected{% endif %}>Olumlu — başlamadı</option>
-          <option value="won_active" {% if filters.status == "won_active" %}selected{% endif %}>Olumlu — çalışılıyor</option>
-          <option value="won_done" {% if filters.status == "won_done" %}selected{% endif %}>Olumlu — bitti</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="f-flag">İlan sağlığı</label>
-        <select id="f-flag" name="flag">
-          <option value="">Hepsi</option>
-          <option value="clean" {% if filters.flag == "clean" %}selected{% endif %}>Yalnızca sorunsuz</option>
-          <option value="problem" {% if filters.flag == "problem" %}selected{% endif %}>Yalnızca sorunlu</option>
-        </select>
-      </div>
-    </div>
-
-    <p class="filter-legend">Tarih</p>
-    <div class="filter-group">
-      <div class="field">
-        <label for="f-days">Yayın tarihi</label>
-        <select id="f-days" name="days">
-          <option value="0">Fark etmez</option>
-          <option value="1" {% if filters.days == 1 %}selected{% endif %}>Son 24 saat</option>
-          <option value="3" {% if filters.days == 3 %}selected{% endif %}>Son 3 gün</option>
-          <option value="7" {% if filters.days == 7 %}selected{% endif %}>Son 7 gün</option>
-          <option value="14" {% if filters.days == 14 %}selected{% endif %}>Son 14 gün</option>
-          <option value="30" {% if filters.days == 30 %}selected{% endif %}>Son 30 gün</option>
-        </select>
-      </div>
-      {# tarih araligi doluysa "Yayin tarihi" secimi yok sayilir #}
-      <div class="field">
-        <label for="f-from">Aralık — başlangıç</label>
-        <input id="f-from" type="date" name="date_from" value="{{ filters.date_from }}">
-      </div>
-      <div class="field">
-        <label for="f-to">Aralık — bitiş</label>
-        <input id="f-to" type="date" name="date_to" value="{{ filters.date_to }}">
-      </div>
-      <div class="field">
-        <label for="f-datefield">Aralık neye göre</label>
-        <select id="f-datefield" name="date_field">
-          <option value="posted" {% if filters.date_field != "seen" %}selected{% endif %}>İlan tarihi</option>
-          <option value="seen" {% if filters.date_field == "seen" %}selected{% endif %}>Sisteme düşme tarihi</option>
-        </select>
-      </div>
-    </div>
-
-    <p class="filter-legend">Sıralama ve ek koşullar</p>
-    <div class="filter-group">
-      <div class="field">
-        <label for="f-sort">Sırala</label>
-        <select id="f-sort" name="sort">
-          <optgroup label="Uygunluk">
-            <option value="score" {% if filters.sort == "score" %}selected{% endif %}>Skora göre (yüksekten)</option>
-            <option value="score_asc" {% if filters.sort == "score_asc" %}selected{% endif %}>Skora göre (düşükten)</option>
-            <option value="mode" {% if filters.sort == "mode" %}selected{% endif %}>Çalışma şekli önceliği</option>
-          </optgroup>
-          <optgroup label="Bütçe">
-            <option value="budget" {% if filters.sort == "budget" %}selected{% endif %}>Bütçe (yüksekten)</option>
-            <option value="budget_asc" {% if filters.sort == "budget_asc" %}selected{% endif %}>Bütçe (düşükten)</option>
-          </optgroup>
-          <optgroup label="Tarih">
-            <option value="date" {% if filters.sort == "date" %}selected{% endif %}>İlan tarihi (yeniden eskiye)</option>
-            <option value="date_asc" {% if filters.sort == "date_asc" %}selected{% endif %}>İlan tarihi (eskiden yeniye)</option>
-            <option value="new" {% if filters.sort == "new" %}selected{% endif %}>Sisteme düşme sırası</option>
-          </optgroup>
-          <optgroup label="Diğer">
-            <option value="company" {% if filters.sort == "company" %}selected{% endif %}>Firmaya göre</option>
-          </optgroup>
-        </select>
-      </div>
-    </div>
-
-    {# dort ayri kutucuk yerine tek serit: acik olan turkuaz yanar #}
-    <div class="filter-toggles">
-      <label class="check"><input type="checkbox" name="contract" value="1" {% if filters.contract %}checked{% endif %}> Proje bazlı</label>
-      <label class="check"><input type="checkbox" name="budget" value="1" {% if filters.budget %}checked{% endif %}> Bütçesi belli</label>
-      <label class="check"><input type="checkbox" name="closed" value="1" {% if filters.closed %}checked{% endif %}> Kapananlar</label>
-      <label class="check"><input type="checkbox" name="supply" value="1" {% if filters.supply %}checked{% endif %}> Hizmet satan ilanlar</label>
-    </div>
-
-    <div class="field actions">
-      <button class="btn-primary" type="submit">Filtrele</button>
-      <a class="btn" href="/">Sıfırla</a>
-    </div>
-  </form>
+  {% include "_filter_form.html" %}
 </details>
 
 <div class="resultbar">
@@ -252,6 +117,12 @@
       <span class="v-grid">{{ svg("grid", 14) }}Izgara</span>
       <span class="v-rows">{{ svg("rows", 14) }}Liste</span>
     </button>
+    {% endif %}
+    {% if total and can('export') %}
+    <a class="btn btn-sm" href="/disari-aktar{% if base_query %}?{{ base_query }}{% endif %}"
+       title="Bu filtredeki ilanları tek tek seçip Excel'e aktarın">
+      {{ svg("sheet", 14) }}Excel'e aktar
+    </a>
     {% endif %}
   </div>
   <div>

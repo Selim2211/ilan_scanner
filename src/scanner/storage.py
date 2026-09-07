@@ -796,6 +796,24 @@ class Storage:
             "ORDER BY score DESC, first_seen_at DESC, fingerprint LIMIT ?",
             (since, int(min_score), int(limit))))
 
+    def rows_by_fingerprints(self, fingerprints: Iterable[str],
+                             profile_id: int = 0) -> list[sqlite3.Row]:
+        """Verilen ilanlar - `mark` sutunuyla, puana gore. "Dışa aktar" ekrani kullanir."""
+        fps = [f for f in dict.fromkeys(fingerprints) if f]
+        if not fps:
+            return []
+        mark = self._status_expr(profile_id)
+        out: list[sqlite3.Row] = []
+        for start in range(0, len(fps), 400):
+            chunk = fps[start:start + 400]
+            ph = ",".join("?" * len(chunk))
+            out += list(self.conn.execute(
+                f"SELECT projects.*, {mark} AS mark FROM projects "
+                f"WHERE fingerprint IN ({ph}) "
+                "ORDER BY score DESC, COALESCE(posted_at, first_seen_at) DESC, fingerprint",
+                chunk))
+        return out
+
     def applications(self, profile_id: int = 0) -> list[sqlite3.Row]:
         """'Basvurular' ekranindaki ilanlar - basvuru sureci durumu olan her ilan.
 

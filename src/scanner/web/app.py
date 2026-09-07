@@ -862,6 +862,104 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             store.close()
         return RedirectResponse(back or "/", status_code=303)
 
+    #: "Dışa aktar" ekraninda seçim yapilabilecek en fazla ilan. Bu sinir hem
+    #: seçim ekranindaki listeyi hem POST'ta kabul edilen fingerprint sayisini
+    #: kapsar - "tümünü seç" bilinçli olarak yok, kullanici filtreyle daraltmali.
+    EXPORT_LIMIT = 500
+
+    @app.get("/disari-aktar")
+    def export_screen(request: Request, q: str = "", exclude: str | None = None, source: str = "",
+                      mode: str | None = None, country: list[str] | None = Query(None),
+                      min_score: int | None = None, contract: int | None = None,
+                      budget: int | None = None, days: int | None = None, status: str = "",
+                      sort: str | None = None, closed: int = 0, supply: int = 0,
+                      date_from: str = "", date_to: str = "", date_field: str = "", flag: str = ""):
+        """İlanları filtreleyip çoklu seçerek Excel'e aktarma ekranı."""
+        _require(request, "export")
+        pid = profile_of(request)
+        store = open_store()
+        profiles = open_profiles()
+        try:
+            view = profiles.active_view()
+        finally:
+            profiles.close()
+
+        secim = ekran_secimleri({
+            "q": q, "exclude": exclude, "source": source, "mode": mode, "country": country,
+            "min_score": min_score, "contract": contract, "budget": budget, "days": days,
+            "status": status, "sort": sort, "closed": closed, "supply": supply,
+            "date_from": date_from, "date_to": date_to, "date_field": date_field, "flag": flag,
+        }, view)
+        filters = secim_filtreleri(secim, pid)
+        try:
+            toplam = store.count(**filters)
+            rows = store.query(**filters, order=secim["sort"], limit=EXPORT_LIMIT, offset=0)
+            facets = store.country_facets(**filters)
+            kaynaklar = store.sources()
+            unread = store.unread_count(pid)
+            newest_seen = store.newest_seen_at()
+        finally:
+            store.close()
+
+        qp = {k: v for k, v in {
+            "q": q, "exclude": exclude, "source": source, "mode": secim["mode"],
+            "country": secim["country"], "min_score": secim["min_score"],
+            "contract": secim["contract"] or "", "budget": secim["budget"] or "",
+            "days": secim["days"] or "", "status": status, "closed": closed or "",
+            "supply": supply or "", "flag": flag, "date_from": date_from, "date_to": date_to,
+            "date_field": date_field if date_field == "seen" else "",
+            "sort": sort if sort and sort != "score" else "",
+        }.items() if v not in ("", None)}
+
+        context = {
+            **base_context(request),
+            "active_tab": "list",
+            "rows": rows,
+            "as_list": _list,
+            "total": toplam,
+            "capped": toplam > EXPORT_LIMIT,
+            "export_limit": EXPORT_LIMIT,
+            "sources": kaynaklar,
+            "country_groups": group_by_region(facets),
+            "country_extra": [c for c in secim["country"]
+                              if c not in {f["code"] for f in facets}],
+            "filters": {"q": secim["q"], "exclude": secim["exclude"], "source": secim["source"],
+                        "mode": secim["mode"], "country": secim["country"],
+                        "min_score": secim["min_score"], "contract": secim["contract"],
+                        "budget": secim["budget"], "days": secim["days"],
+                        "status": secim["status"], "closed": secim["closed"],
+                        "supply": secim["supply"], "date_from": secim["date_from"],
+                        "date_to": secim["date_to"],
+                        "date_field": secim["date_field"] or "posted", "flag": secim["flag"],
+                        "sort": secim["sort"]},
+            "base_query": urlencode(qp, doseq=True),
+            "scan": scan_state(),
+            "unread": unread,
+            "newest_seen": newest_seen,
+        }
+        return TEMPLATES.TemplateResponse(request, "disari_aktar.html", context)
+
+    @app.post("/disari-aktar")
+    async def export_xlsx(request: Request):
+        """Seçilen ilanları biçimli bir Excel dosyası olarak indirir."""
+        _require(request, "export")
+        form = await request.form()
+        fps = [f for f in form.getlist("fp") if f][:EXPORT_LIMIT]
+        if not fps:
+            return RedirectResponse("/disari-aktar", status_code=303)
+        pid = profile_of(request)
+        store = open_store()
+        try:
+            rows = store.rows_by_fingerprints(fps, pid)
+        finally:
+            store.close()
+        if not rows:
+            return RedirectResponse("/disari-aktar", status_code=303)
+        ad = export_mod.default_name("secili-ilanlar", "xlsx")
+        return _dosya_yaniti(
+            export_mod.report_xlsx_bytes(rows), ad,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
     @app.get("/ilan/{fingerprint}/word")
     def project_word(request: Request, fingerprint: str):
         """Tek ilanı formatlı bir Word (.docx) dosyası olarak indirir."""

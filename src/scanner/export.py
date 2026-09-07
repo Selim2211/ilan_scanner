@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 import sqlite3
 from datetime import datetime
@@ -99,3 +100,118 @@ def to_csv(rows: Sequence[sqlite3.Row], path: Path) -> Path:
 
 def default_name(prefix: str, extension: str) -> str:
     return f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M')}.{extension}"
+
+
+# --- panel "Dışa aktar" ekrani: secili ilanlar, okunur rapor -----------------
+
+STATUS_LABEL = {
+    "new": "İşaretsiz", "shortlist": "Takipte", "applied": "Başvuruldu",
+    "rejected": "Olumsuz", "won_pending": "Olumlu — başlamadı",
+    "won_active": "Olumlu — çalışılıyor", "won_done": "Olumlu — bitti",
+}
+
+#: (baslik, genislik, sarma) - deger _report_value ile uretilir
+REPORT_COLUMNS = [
+    ("Güncellik", 14, False),
+    ("Skor", 7, False),
+    ("Başlık", 46, True),
+    ("İlan tarihi", 13, False),
+    ("Çalışma şekli", 13, False),
+    ("Firma", 24, True),
+    ("Kaynak", 13, False),
+    ("Bütçe / Ücret", 16, False),
+    ("Durum", 16, False),
+    ("Önemli hususlar", 60, True),
+    ("Bağlantı", 50, False),
+]
+
+
+def _guncellik(row: sqlite3.Row) -> str:
+    if not row["is_active"]:
+        return "İlan kapandı"
+    if (row["missing_streak"] or 0) >= 2:
+        return "Kontrol ediliyor"
+    return "Yayında"
+
+
+def _onemli_hususlar(row: sqlite3.Row) -> str:
+    """AI'nin cikardigi 'olmazsa olmaz' maddeler; yoksa eslesen kelimeler."""
+    maddeler = _json_list_items(row["ai_must_haves"] if "ai_must_haves" in row.keys() else None)
+    if maddeler:
+        return "\n".join(f"• {m}" for m in maddeler)
+    hits = _json_list_items(row["keywords_hit"])
+    return ", ".join(hits)
+
+
+def _json_list_items(value) -> list[str]:
+    if not value:
+        return []
+    try:
+        return [str(x).strip() for x in json.loads(value) if str(x).strip()]
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _report_value(row: sqlite3.Row, header: str) -> str:
+    if header == "Güncellik":
+        return _guncellik(row)
+    if header == "Skor":
+        return "" if row["score"] is None else str(row["score"])
+    if header == "Başlık":
+        return row["title"] or ""
+    if header == "İlan tarihi":
+        return str(row["posted_at"] or row["first_seen_at"] or "")[:10]
+    if header == "Çalışma şekli":
+        return MODE_LABEL.get(row["work_mode"] or "unknown", "?")
+    if header == "Firma":
+        return row["company"] or ""
+    if header == "Kaynak":
+        return row["source"] or ""
+    if header == "Bütçe / Ücret":
+        return row["budget_raw"] or ""
+    if header == "Durum":
+        mark = row["mark"] if "mark" in row.keys() else ""
+        return STATUS_LABEL.get(mark, "")
+    if header == "Önemli hususlar":
+        return _onemli_hususlar(row)
+    if header == "Bağlantı":
+        return row["url"] or ""
+    return ""
+
+
+def report_xlsx_bytes(rows: Sequence[sqlite3.Row]) -> bytes:
+    """Secili ilanlari okunur, bicimli bir Excel'e yazar; baytlari dondurur (panel indirir)."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Seçili ilanlar"
+
+    for col, (header, width, _wrap) in enumerate(REPORT_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = HEADER_FILL
+        cell.alignment = Alignment(vertical="center")
+        ws.column_dimensions[get_column_letter(col)].width = width
+    ws.row_dimensions[1].height = 20
+
+    for r, row in enumerate(rows, start=2):
+        for c, (header, _w, wrap) in enumerate(REPORT_COLUMNS, start=1):
+            cell = ws.cell(row=r, column=c, value=_report_value(row, header))
+            cell.alignment = Alignment(vertical="top", wrap_text=wrap)
+            if header == "Bağlantı" and row["url"]:
+                cell.hyperlink = row["url"]
+                cell.font = Font(color="0563C1", underline="single")
+        mod = row["work_mode"]
+        if mod == "remote":
+            ws.cell(row=r, column=5).fill = REMOTE_FILL
+        elif mod == "hybrid":
+            ws.cell(row=r, column=5).fill = HYBRID_FILL
+        if not row["is_active"]:
+            ws.cell(row=r, column=1).fill = PatternFill("solid", fgColor="F2C6C6")
+
+    ws.freeze_panes = "A2"
+    if ws.max_row >= 1:
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(REPORT_COLUMNS))}{max(ws.max_row, 1)}"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
