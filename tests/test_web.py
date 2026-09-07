@@ -709,6 +709,25 @@ def test_ilan_word_bilinmeyen_fingerprint_404(client):
     assert client.get("/ilan/yok/word").status_code == 404
 
 
+def test_ilan_word_ai_ozeti_iceriyor(client, tmp_path, monkeypatch):
+    """Özet penceresi hiç açılmadıysa bile Word indirince AI özeti üretilip konur."""
+    import io
+    import zipfile
+    import scanner.web.app as app_mod
+
+    fp = _tek_ilan(tmp_path, description="Wir suchen SAP ABAP Entwickler.", score=90)
+    _ai_kur(monkeypatch, client, {
+        "summary": "Remote SAP ABAP contract, 6 months.",
+        "must_haves": ["5+ years ABAP", "Fluent English"],
+    }, esik=30)
+
+    r = client.get(f"/ilan/{fp}/word")
+    assert r.status_code == 200
+    doc = zipfile.ZipFile(io.BytesIO(r.content)).read("word/document.xml").decode("utf-8")
+    assert "Remote SAP ABAP contract" in doc
+    assert "5+ years ABAP" in doc and "Olmazsa olmaz koşullar" in doc
+
+
 # --- "Dışa aktar" ekrani (coklu secim -> xlsx) --------------------------
 
 def test_disari_aktar_ekrani_filtreli_liste(client, tmp_path):

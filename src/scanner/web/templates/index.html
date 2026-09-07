@@ -119,7 +119,7 @@
     </button>
     {% endif %}
     {% if total and can('export') %}
-    <a class="btn btn-sm" href="/disari-aktar{% if base_query %}?{{ base_query }}{% endif %}"
+    <a class="btn btn-sm xls-btn" href="/disari-aktar{% if base_query %}?{{ base_query }}{% endif %}"
        title="Bu filtredeki ilanları tek tek seçip Excel'e aktarın">
       {{ svg("sheet", 14) }}Excel'e aktar
     </a>
@@ -286,8 +286,8 @@
           {{ svg("info", 15) }}<span>Özet</span>
         </button>
         {% if can('export') %}
-        <a class="iconbtn word-btn" href="/ilan/{{ row['fingerprint'] }}/word"
-           title="Bu ilanı Word (.docx) olarak indir">
+        <a class="btn iconbtn word-btn" href="/ilan/{{ row['fingerprint'] }}/word"
+           title="Bu ilanı biçimli bir Word (.docx) dosyası olarak indir">
           {{ svg("word", 15) }}<span>Word</span>
         </a>
         {% endif %}

@@ -658,6 +658,35 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         store.close()
         return JSONResponse({"unread": count})
 
+    def _ozet_hazirla(store: Storage, row: sqlite3.Row) -> sqlite3.Row:
+        """İlanın AI özeti yoksa (mümkünse) üretip kaydeder; güncel satırı döndürür.
+
+        Word/Excel çıktısı çağırır: kullanıcı "Özet" penceresini hiç açmamış
+        olabilir ama indirilen dosyada özet de bulunsun. Üretilemezse (AI kapalı,
+        anahtar yok, skor eşiğin altında, servis hata verdi) satır olduğu gibi döner.
+        """
+        fp = row["fingerprint"]
+        ham = (row["description"] or "").strip()
+        if row["source"] == "freelancermap" and len(ham) < 160 and row["url"]:
+            from ..sources.freelancermap import detail_description
+            zengin = detail_description(row["url"])
+            if zengin:
+                store.save_description(fp, zengin)
+                ham = zengin
+        if (row["ai_summary"] or "").strip():
+            return store.get_by_fingerprint(fp)
+        acik, model, esik, zaman_asimi = ai_mod.ayarlar(state["config"])
+        anahtar = os.environ.get("GEMINI_API_KEY", "").strip()
+        if acik and anahtar and ham and int(row["score"] or 0) >= esik:
+            sonuc = ai_mod.ozetle(row["title"] or "", ham, anahtar=anahtar, model=model,
+                                  zaman_asimi=zaman_asimi)
+            if sonuc:
+                store.save_ai_summary(fp, sonuc["summary"], sonuc["must_haves"], model)
+                gt = int(sonuc.get("prompt_tokens") or 0)
+                ct = int(sonuc.get("output_tokens") or 0)
+                store.record_ai_usage(model, gt, ct, ai_mod.maliyet_usd(model, gt, ct), fp)
+        return store.get_by_fingerprint(fp)
+
     @app.get("/api/ozet")
     def summary_feed(request: Request, fingerprint: str = ""):
         """Ilanin ustune gelince acilan merkez pencere icin ozet + olmazsa olmazlar.
@@ -962,7 +991,11 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
 
     @app.get("/ilan/{fingerprint}/word")
     def project_word(request: Request, fingerprint: str):
-        """Tek ilanı formatlı bir Word (.docx) dosyası olarak indirir."""
+        """Tek ilanı formatlı bir Word (.docx) dosyası olarak indirir.
+
+        İlanın yapay zeka özeti henüz yoksa (Özet penceresi hiç açılmamış)
+        indirmeden önce üretilmeye çalışılır - dosyada özet de bulunsun.
+        """
         _require(request, "export")
         pid = profile_of(request)
         store = open_store()
@@ -970,6 +1003,7 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             row = store.get_by_fingerprint(fingerprint)
             if row is None:
                 return JSONResponse({"ok": False, "detail": "İlan bulunamadı"}, status_code=404)
+            row = _ozet_hazirla(store, row)
             veri = dict(row)
             veri["mark"] = store.status_of(fingerprint, pid)
         finally:

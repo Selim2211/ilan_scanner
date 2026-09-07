@@ -556,9 +556,18 @@ select { appearance:none; padding-right:34px;
    arasinda goze hemen carpsin diye. */
 .iconbtn.ozet-btn { color:var(--violet); border-color:var(--violet); background:var(--violet-soft); }
 .iconbtn.ozet-btn:hover { background:var(--violet); color:#fff; border-color:var(--violet); }
-/* Word'e aktar: Office mavisi, listedeki diger ikonlardan ayrilsin */
-.iconbtn.word-btn { color:#2b7cd3; border-color:#2b7cd3; background:rgba(43,124,211,.1); }
+/* Word'e aktar: Özet ile ayni pill dili, Office mavisi. <a> oldugu icin
+   `.btn iconbtn` birlikte kullanilir - taban dugme stilini de alsin. */
+.iconbtn.word-btn {
+  color:#2b7cd3; border-color:#2b7cd3; background:rgba(43,124,211,.12);
+  text-decoration:none; font-weight:600;
+}
 .iconbtn.word-btn:hover { background:#2b7cd3; color:#fff; border-color:#2b7cd3; }
+.iconbtn.word-btn svg { stroke-width:1.9; }
+
+/* Sonuç çubuğundaki "Excel'e aktar": Excel yeşili, dışa aktarma eylemi belli olsun */
+.btn.xls-btn { color:#1a7a45; border-color:#1a7a45; background:rgba(26,122,69,.1); font-weight:600; }
+.btn.xls-btn:hover { background:#1a7a45; color:#fff; border-color:#1a7a45; }
 
 /* ---------- 8. sayfalama ---------- */
 .pager { display:flex; gap:6px; justify-content:center; align-items:center; flex-wrap:wrap; margin:26px 0 4px; }
