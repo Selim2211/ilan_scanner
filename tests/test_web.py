@@ -685,6 +685,30 @@ def test_basvurular_ekrani_ve_durum(client, tmp_path):
     store.close()
 
 
+def test_ilan_word_ciktisi_gecerli_docx(client, tmp_path):
+    import io
+    import zipfile
+    from xml.dom.minidom import parseString
+
+    fp = _tek_ilan(tmp_path, title="SAP ABAP Word Testi", score=77)
+    r = client.get(f"/ilan/{fp}/word")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    assert "SAP-ABAP-Word-Testi.docx" in r.headers["content-disposition"]
+
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    assert "word/document.xml" in z.namelist()
+    doc = z.read("word/document.xml").decode("utf-8")
+    parseString(doc)                       # iyi bicimli XML
+    assert "SAP ABAP Word Testi" in doc
+    assert "Künye" in doc and "77" in doc
+
+
+def test_ilan_word_bilinmeyen_fingerprint_404(client):
+    assert client.get("/ilan/yok/word").status_code == 404
+
+
 def test_basvurulan_ilan_ana_listeden_kalkar(client, tmp_path):
     """Basvuru surecindeki ilan varsayilan listede digerleriyle karismaz."""
     fp = _tek_ilan(tmp_path, title="SAP ABAP Gizlenecek", score=80)

@@ -11,7 +11,7 @@
 services:
   radar:
     build: .
-    image: sap-proje-radari:1.10.0
+    image: sap-proje-radari:1.11.0
     container_name: sap-radar
 
     # Makine yeniden baslayinca panel de kalksin: Windows'taki

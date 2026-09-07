@@ -556,6 +556,9 @@ select { appearance:none; padding-right:34px;
    arasinda goze hemen carpsin diye. */
 .iconbtn.ozet-btn { color:var(--violet); border-color:var(--violet); background:var(--violet-soft); }
 .iconbtn.ozet-btn:hover { background:var(--violet); color:#fff; border-color:var(--violet); }
+/* Word'e aktar: Office mavisi, listedeki diger ikonlardan ayrilsin */
+.iconbtn.word-btn { color:#2b7cd3; border-color:#2b7cd3; background:rgba(43,124,211,.1); }
+.iconbtn.word-btn:hover { background:#2b7cd3; color:#fff; border-color:#2b7cd3; }
 
 /* ---------- 8. sayfalama ---------- */
 .pager { display:flex; gap:6px; justify-content:center; align-items:center; flex-wrap:wrap; margin:26px 0 4px; }

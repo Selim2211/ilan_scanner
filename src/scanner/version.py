@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 APP_NAME = "İlan Tarayıcı"
-VERSION = "1.10.0"
+VERSION = "1.11.0"
 RELEASE_DATE = "2026-09-07"
 
 #: Hakkinda penceresinde madde madde gosterilir - "bu surumde ne degisti".
 CHANGELOG = [
+    ("1.11.0", "2026-09-07", [
+        "Her ilanın yanına mavi \"Word\" düğmesi eklendi: ilanı başlık, künye "
+        "tablosu, yapay zeka özeti, olmazsa olmaz koşullar, eşleşen kelimeler ve "
+        "tam açıklamayla birlikte biçimli bir Word (.docx) dosyası olarak indirir.",
+    ]),
     ("1.10.0", "2026-09-07", [
         "Giriş geçmişi tutuluyor: her başarılı giriş zaman ve IP ile kaydediliyor "
         "(Admin > kullanıcı > Giriş geçmişi).",

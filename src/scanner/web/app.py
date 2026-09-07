@@ -17,14 +17,16 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from math import ceil
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, quote, urlencode
 
-from fastapi import FastAPI, Form, Query, Request
+from fastapi import FastAPI, Form, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import ai as ai_mod
+from .. import docx_export
+from .. import export as export_mod
 from .. import maintenance as maint_mod
 from .. import settings as settings_mod
 from ..auth import (COOKIE_NAME, DEFAULT_PERMISSIONS, PERMISSION_GROUPS, PERMISSIONS, Auth,
@@ -88,6 +90,21 @@ PUBLIC_PATHS = ("/giris", "/static", "/favicon.ico")
 
 #: Kontrol dugmesine arka arkaya basilinca ayni anda 10 istemci acilmasin
 _PROBE_LOCK = threading.Semaphore(1)
+
+
+def _indir_adi(baslik: str, uzanti: str) -> str:
+    """İndirilecek dosya adi: baslikten sadelestirilmis, kisa, guvenli."""
+    temiz = "".join(c if c.isalnum() or c in " -_" else " " for c in (baslik or "ilan"))
+    temiz = "-".join(temiz.split())[:70].strip("-") or "ilan"
+    return f"{temiz}.{uzanti}"
+
+
+def _dosya_yaniti(icerik: bytes, ad: str, media_type: str) -> Response:
+    """Tarayiciya indirme olarak dondur (ASCII + UTF-8 dosya adi)."""
+    ascii_ad = ad.encode("ascii", "ignore").decode() or "indir"
+    return Response(content=icerik, media_type=media_type, headers={
+        "Content-Disposition": f"attachment; filename=\"{ascii_ad}\"; "
+                               f"filename*=UTF-8''{quote(ad)}"})
 
 
 def list_filters(min_score: int = 0, source: str = "", q: str = "", exclude: str = "",
@@ -844,6 +861,25 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         finally:
             store.close()
         return RedirectResponse(back or "/", status_code=303)
+
+    @app.get("/ilan/{fingerprint}/word")
+    def project_word(request: Request, fingerprint: str):
+        """Tek ilanı formatlı bir Word (.docx) dosyası olarak indirir."""
+        _require(request, "export")
+        pid = profile_of(request)
+        store = open_store()
+        try:
+            row = store.get_by_fingerprint(fingerprint)
+            if row is None:
+                return JSONResponse({"ok": False, "detail": "İlan bulunamadı"}, status_code=404)
+            veri = dict(row)
+            veri["mark"] = store.status_of(fingerprint, pid)
+        finally:
+            store.close()
+        return _dosya_yaniti(
+            docx_export.build_docx([veri]),
+            _indir_adi(row["title"], "docx"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
     @app.get("/basvurular")
     def applications_page(request: Request, durum: str = "", q: str = "", sort: str = "guncel"):
