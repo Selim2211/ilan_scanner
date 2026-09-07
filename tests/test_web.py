@@ -745,8 +745,7 @@ def test_disari_aktar_ekrani_filtreli_liste(client, tmp_path):
     hepsi = client.get("/disari-aktar?min_score=0")
     assert hepsi.status_code == 200
     assert "SAP ABAP Remote" in hepsi.text and "Java Dev" in hepsi.text
-    # "tümünü seç" kutusu YOK
-    assert 'id="select-all"' not in hepsi.text
+    assert 'id="xp-all"' in hepsi.text          # "Tümünü seç" düğmesi
 
     suzulmus = client.get("/disari-aktar?min_score=0&q=abap").text
     assert "SAP ABAP Remote" in suzulmus and "Java Dev" not in suzulmus

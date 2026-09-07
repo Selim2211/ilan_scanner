@@ -38,8 +38,9 @@
 </div>
 
 <p class="xp-note">
-  Aşağıdaki filtreyle listeyi daraltın, aktarmak istediğiniz ilanları
-  <b>tek tek işaretleyin</b>, sonra alttaki <b>Excel'e aktar</b> düğmesine basın.
+  Aşağıdaki filtreyle listeyi daraltın, aktarmak istediğiniz ilanları işaretleyin
+  (<b>Tümünü seç</b> ile listenin hepsini bir seferde), sonra alttaki
+  <b>Excel'e aktar</b> düğmesine basın.
   Dosyada her ilanın güncelliği, skoru, başlığı, tarihi, çalışma şekli, firması,
   bütçesi, durumu, önemli hususları ve bağlantısı yer alır.
   {% if capped %}
@@ -90,6 +91,7 @@
     <span class="count"><b id="xp-count">0</b> ilan seçildi
       <span class="muted">/ {{ rows|length }} listelenen</span></span>
     <div class="acts">
+      <button class="btn btn-sm" type="button" id="xp-all">Tümünü seç ({{ rows|length }})</button>
       <button class="btn btn-sm" type="button" id="xp-clear">Seçimi temizle</button>
       <button class="btn-primary" type="submit" id="xp-go" disabled>Excel'e aktar</button>
     </div>
@@ -112,6 +114,10 @@
       git.disabled = n === 0;
     }
     form.addEventListener("change", guncelle);
+    document.getElementById("xp-all").addEventListener("click", function () {
+      kutular.forEach(function (k) { k.checked = true; });
+      guncelle();
+    });
     document.getElementById("xp-clear").addEventListener("click", function () {
       kutular.forEach(function (k) { k.checked = false; });
       guncelle();
