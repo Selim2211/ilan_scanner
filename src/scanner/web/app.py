@@ -421,11 +421,14 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
              "app_version": VERSION, "user": None})
 
     @app.post("/giris")
-    def login_submit(username: str = Form(""), password: str = Form(""),
+    def login_submit(request: Request, username: str = Form(""), password: str = Form(""),
                      next: str = Form("/")):
         auth = open_auth()
         try:
-            result = auth.login(username, password)
+            result = auth.login(
+                username, password,
+                ip=(request.client.host if request.client else ""),
+                user_agent=request.headers.get("user-agent", ""))
         finally:
             auth.close()
         if result is None:
@@ -556,10 +559,27 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             "date_field": date_field if date_field == "seen" else "",
         }.items() if v not in ("", None)}
 
+        # "İyi haberler var" penceresi: kullanicinin bir onceki girisinden bu yana
+        # dusen yuksek puanli, okunmamis ilanlar. Sadece 1. sayfada, filtresiz gorunumde.
+        haberler, haber_key = [], ""
+        if page == 1:
+            auth = open_auth()
+            try:
+                onceki_giris = auth.previous_login(user.id)
+            finally:
+                auth.close()
+            if onceki_giris:
+                haber_esik = max(default_min_score(), 50)
+                haberler = store.good_news(onceki_giris, min_score=haber_esik,
+                                           profile_id=pid, limit=12)
+                haber_key = onceki_giris
+
         context = {
             **base_context(request),
             "rows": rows,
             "as_list": _list,
+            "haberler": haberler,
+            "haber_key": haber_key,
             "sources": store.sources(),
             "country_groups": group_by_region(facets),
             # facet listesinde yeri olmayan secimler (bu filtre kumesinde ilani
@@ -1435,6 +1455,7 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
             context = {
                 **base_context(request),
                 "users": user_rows,
+                "login_history": {u.id: auth.recent_logins(u.id, 8) for u in user_rows},
                 "permission_groups": PERMISSION_GROUPS,
                 "profiles": profiles.all(),
                 # her kullanicinin hangi profillere erisebildigi (kutular isaretli gelsin)

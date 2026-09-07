@@ -43,6 +43,18 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_se_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_se_exp ON sessions(expires_at);
+
+-- Giris gecmisi: her basarili girise bir satir. Ana ekrandaki "İyi haberler
+-- var" penceresi, kullanicinin BIR ONCEKI girisinden bu yana dusen yuksek
+-- puanli okunmamis ilanlari buradan (previous_login) hesaplar.
+CREATE TABLE IF NOT EXISTS login_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    at         TEXT NOT NULL,
+    ip         TEXT,
+    user_agent TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_le_user ON login_events(user_id, at DESC);
 """
 
 #: (anahtar, baslik, aciklama) - Ayarlar > Admin ekranindaki anahtarlar bunlardan uretilir
@@ -231,7 +243,8 @@ class Auth:
         self.conn.commit()
 
     # --- oturum ----------------------------------------------------------
-    def login(self, username: str, password: str) -> tuple[str, User] | None:
+    def login(self, username: str, password: str, *, ip: str = "",
+              user_agent: str = "") -> tuple[str, User] | None:
         row = self.by_username(username)
         if row is None or not row["is_active"]:
             # kullanici yoksa da ayni sureyi harcayalim: varlik sizdirmasin
@@ -240,13 +253,44 @@ class Auth:
         if not check_password(password, row["password_hash"], row["salt"]):
             return None
         token = secrets.token_urlsafe(32)
+        now = _now()
         expires = (datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)).isoformat()
         self.conn.execute(
             "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?,?,?,?)",
-            (token, row["id"], _now(), expires))
-        self.conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (_now(), row["id"]))
+            (token, row["id"], now, expires))
+        self.conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, row["id"]))
+        self.conn.execute(
+            "INSERT INTO login_events (user_id, at, ip, user_agent) VALUES (?,?,?,?)",
+            (row["id"], now, (ip or "")[:64], (user_agent or "")[:300]))
         self.conn.commit()
         return token, User(self.by_username(username))
+
+    def previous_login(self, user_id: int) -> str | None:
+        """Bir onceki giris zamani (en son giris HARIC). Ilk girise None doner.
+
+        "İyi haberler var" penceresi bu andan `now`a kadarki ilanlari gosterir.
+        """
+        row = self.conn.execute(
+            "SELECT at FROM login_events WHERE user_id = ? ORDER BY at DESC, id DESC "
+            "LIMIT 1 OFFSET 1", (user_id,)).fetchone()
+        return row["at"] if row else None
+
+    def recent_logins(self, user_id: int, limit: int = 15) -> list[sqlite3.Row]:
+        """Admin panelindeki kullanici giris gecmisi."""
+        return list(self.conn.execute(
+            "SELECT at, ip, user_agent FROM login_events WHERE user_id = ? "
+            "ORDER BY at DESC, id DESC LIMIT ?", (user_id, limit)))
+
+    def prune_login_events(self, keep_per_user: int = 50) -> int:
+        """Bakim: kullanici basina en son N girisi tut, eskiyi sil."""
+        cur = self.conn.execute(
+            "DELETE FROM login_events WHERE id NOT IN ("
+            "  SELECT id FROM login_events le WHERE ("
+            "    SELECT COUNT(*) FROM login_events x "
+            "    WHERE x.user_id = le.user_id AND (x.at > le.at OR (x.at = le.at AND x.id >= le.id))"
+            "  ) <= ?)", (keep_per_user,))
+        self.conn.commit()
+        return cur.rowcount
 
     def session_user(self, token: str | None) -> User | None:
         if not token:

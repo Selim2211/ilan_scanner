@@ -475,4 +475,43 @@
   <div class="ozet-modal-gereksinimler"></div>
   <span class="ozet-modal-dil"></span>
 </div>
+
+{# "İyi haberler var": son girişten bu yana düşen yüksek puanlı, okunmamış
+   ilanlar. Yalnızca içerik varsa ve bu giriş için daha önce kapatılmadıysa
+   açılır (app.js, localStorage anahtarı data-key). #}
+{% if haberler %}
+<div id="haberler-modal" class="modal" role="dialog" aria-modal="true"
+     aria-labelledby="haberler-title" data-key="{{ haber_key }}" hidden>
+  <div class="modal-card haberler-card">
+    <h3 id="haberler-title">İyi haberler var 🎉</h3>
+    <p class="haberler-alt">Son girişinizden bu yana düşen, yüksek puanlı ve hâlâ
+      işaretsiz ilanlar — en iyi <b>{{ haberler|length }}</b> tanesi:</p>
+    <ol class="haberler-list">
+      {% for h in haberler %}
+      <li>
+        <div class="haberler-ust">
+          <span class="pill contract">{{ h["score"] }} PUAN</span>
+          {% if h["work_mode"] == "remote" %}<span class="pill remote">UZAKTAN</span>
+          {% elif h["work_mode"] == "hybrid" %}<span class="pill hybrid">HİBRİT</span>{% endif %}
+          <span class="haberler-tarih">{{ (h["posted_at"] or h["first_seen_at"]) | since }}</span>
+          <span class="haberler-kaynak">{{ h["source"] }}</span>
+        </div>
+        <a class="haberler-baslik" href="{{ h['url'] }}" target="_blank" rel="noopener">{{ h["title"] }}</a>
+        {% set ozet = h["ai_summary"] or h["summary_en"] or h["description"] %}
+        {% if ozet %}<p class="haberler-ozet">{{ ozet[:280] }}{% if ozet|length > 280 %}…{% endif %}</p>{% endif %}
+        {% set kosullar = as_list(h["ai_must_haves"]) %}
+        {% if kosullar %}
+        <div class="haberler-kosullar">
+          {% for k in kosullar[:5] %}<span class="tag">{{ k }}</span>{% endfor %}
+        </div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    <div class="modal-actions">
+      <button class="btn-primary" type="button" id="haberler-kapat">Okudum, kapat</button>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

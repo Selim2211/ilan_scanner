@@ -802,6 +802,20 @@ code {
 .btn-primary.danger { background:var(--coral); color:#fff; }
 .btn-primary.danger:hover { background:color-mix(in srgb, var(--coral) 85%, #fff); }
 
+/* "İyi haberler var" penceresi */
+.haberler-card { max-width:560px; }
+.haberler-alt { margin:0 0 14px; font-size:13px; color:var(--ink-2); }
+.haberler-list { list-style:none; margin:0 0 16px; padding:0; max-height:56vh; overflow-y:auto;
+                 display:flex; flex-direction:column; gap:14px; }
+.haberler-list li { padding:12px 0; border-top:1px solid var(--line); }
+.haberler-list li:first-child { border-top:0; padding-top:0; }
+.haberler-ust { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:5px; }
+.haberler-tarih, .haberler-kaynak { font:500 11px/1 var(--font-mono); color:var(--ink-3); }
+.haberler-baslik { display:inline-block; font:600 14px/1.35 var(--font-display); color:var(--ink); }
+.haberler-baslik:hover { color:var(--signal); }
+.haberler-ozet { margin:5px 0 0; font-size:12.5px; line-height:1.55; color:var(--ink-2); }
+.haberler-kosullar { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+
 /* "Tumunu kontrol et" sonuc kutusu */
 .sweep-result-card { max-width:380px; text-align:center; padding-top:28px; }
 .sweep-result-icon {

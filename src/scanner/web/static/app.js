@@ -614,6 +614,31 @@
 
   document.querySelectorAll("[data-multiselect]").forEach(initMultiselect);
 
+  // --- "İyi haberler var" penceresi -----------------------------------
+  // Sunucu son giristen bu yana dusen yuksek puanli ilanlari sablona koyduysa
+  // pencereyi bir kez ac. Kapatinca bu giris icin bir daha acilmaz (localStorage,
+  // anahtar = bir onceki giris zamani; yeni girişte anahtar degisir).
+  (function () {
+    const modal = document.getElementById("haberler-modal");
+    if (!modal) return;
+    const key = "radar-haber-" + (modal.dataset.key || "");
+    let goruldu = false;
+    try { goruldu = localStorage.getItem(key) === "1"; } catch (e) { /* kapali olabilir */ }
+    if (goruldu) return;
+
+    function kapat() {
+      modal.hidden = true;
+      try { localStorage.setItem(key, "1"); } catch (e) { /* yok say */ }
+    }
+    modal.hidden = false;
+    const btn = document.getElementById("haberler-kapat");
+    if (btn) btn.addEventListener("click", kapat);
+    modal.addEventListener("click", function (e) { if (e.target === modal) kapat(); });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !modal.hidden) kapat();
+    });
+  })();
+
   poll();
   setInterval(function () { poll(); }, POLL_MS);
   document.addEventListener("visibilitychange", function () {

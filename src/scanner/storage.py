@@ -778,6 +778,24 @@ class Storage:
                 (int(profile_id), fingerprint, status, _now()))
         self.conn.commit()
 
+    def good_news(self, since: str, min_score: int = 0, profile_id: int = 0,
+                  limit: int = 15) -> list[sqlite3.Row]:
+        """"İyi haberler var" penceresi: `since`den beri sisteme dusen, aktif,
+        yuksek puanli ve HENUZ OKUNMAMIS (isaretsiz) ilanlar - puana gore.
+
+        "Okunmamis" = bu profilde 'new' isaretli (takip/basvuru/gizli degil).
+        """
+        if not since:
+            return []
+        mark = self._status_expr(profile_id)
+        return list(self.conn.execute(
+            f"SELECT projects.*, {mark} AS mark FROM projects "
+            "WHERE is_active = 1 AND COALESCE(is_supply, 0) = 0 "
+            "AND first_seen_at > ? AND score >= ? "
+            f"AND {mark} = 'new' "
+            "ORDER BY score DESC, first_seen_at DESC, fingerprint LIMIT ?",
+            (since, int(min_score), int(limit))))
+
     def applications(self, profile_id: int = 0) -> list[sqlite3.Row]:
         """'Basvurular' ekranindaki ilanlar - basvuru sureci durumu olan her ilan.
 

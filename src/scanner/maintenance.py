@@ -241,6 +241,9 @@ def run(selected: list[str], config: dict | None = None) -> list[str]:
         auth = Auth(db_path)
         try:
             report.append(f"{auth.purge_sessions()} süresi dolmuş oturum silindi.")
+            budanan = auth.prune_login_events(keep_per_user=50)
+            if budanan:
+                report.append(f"{budanan} eski giriş kaydı silindi.")
         finally:
             auth.close()
 

@@ -142,6 +142,27 @@
       </div>
     </form>
 
+    {# giris gecmisi #}
+    <details style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line)">
+      <summary style="cursor:pointer; font-weight:600; font-size:13px">
+        Giriş geçmişi
+        <span class="muted">({{ login_history.get(u.id, []) | length }} kayıt gösteriliyor)</span>
+      </summary>
+      {% set gecmis = login_history.get(u.id, []) %}
+      {% if gecmis %}
+      <ul style="list-style:none; margin:10px 0 0; padding:0; font:500 12px/1.7 var(--font-mono)">
+        {% for g in gecmis %}
+        <li style="color:var(--ink-2)">
+          {{ g["at"] | since }}
+          {% if g["ip"] %}<span class="muted"> · {{ g["ip"] }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted" style="margin:10px 0 0">Kayıtlı giriş yok.</p>
+      {% endif %}
+    </details>
+
     {# sifre sifirlama + silme #}
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;
                 padding-top:14px; border-top:1px solid var(--line)">

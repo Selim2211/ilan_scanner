@@ -2,11 +2,18 @@
 from __future__ import annotations
 
 APP_NAME = "İlan Tarayıcı"
-VERSION = "1.9.2"
-RELEASE_DATE = "2026-09-04"
+VERSION = "1.10.0"
+RELEASE_DATE = "2026-09-07"
 
 #: Hakkinda penceresinde madde madde gosterilir - "bu surumde ne degisti".
 CHANGELOG = [
+    ("1.10.0", "2026-09-07", [
+        "Giriş geçmişi tutuluyor: her başarılı giriş zaman ve IP ile kaydediliyor "
+        "(Admin > kullanıcı > Giriş geçmişi).",
+        "Panele her girişte, bir önceki girişinizden bu yana listeye düşen yüksek "
+        "puanlı ve hâlâ işaretsiz ilanların özeti \"İyi haberler var\" penceresiyle "
+        "karşınıza çıkıyor. Okuyup kapatınca o giriş için bir daha görünmüyor.",
+    ]),
     ("1.9.2", "2026-09-04", [
         "Başvurular ekranındaki filtre genişletildi: 5 durumun her biri artık ayrı "
         "ayrı seçilebiliyor (\"Olumlu (tümü)\" hâlâ duruyor), başlık/firma/kaynakta "

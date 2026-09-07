@@ -87,6 +87,69 @@ def test_cikis_oturumu_dusurur(admin):
     assert client.get("/", follow_redirects=False).status_code == 303
 
 
+# --- giris gecmisi + "İyi haberler var" penceresi ----------------------
+def test_giris_login_event_kaydeder(panel):
+    client, db = panel
+    client.post("/giris", data={"username": "admin", "password": "123456"},
+                follow_redirects=False)
+    auth = Auth(db)
+    try:
+        uid = auth.by_username("admin")["id"]
+        assert len(auth.recent_logins(uid)) == 1
+        assert auth.previous_login(uid) is None      # ilk giris
+        client.post("/cikis", follow_redirects=False)
+        client.post("/giris", data={"username": "admin", "password": "123456"},
+                    follow_redirects=False)
+        assert len(auth.recent_logins(uid)) == 2
+        assert auth.previous_login(uid) is not None  # artik onceki giris var
+    finally:
+        auth.close()
+
+
+def test_iyi_haberler_penceresi_yeni_yuksek_puanli_ilanlari_gosterir(panel):
+    client, db = panel
+    # ilk giris (haber yok), sonra cikis
+    client.post("/giris", data={"username": "admin", "password": "123456"},
+                follow_redirects=False)
+    assert "İyi haberler var" not in client.get("/").text
+    client.post("/cikis", follow_redirects=False)
+
+    # arada yuksek puanli yeni bir ilan dussun
+    store = Storage(db)
+    try:
+        store.upsert([_project("mega", 90, work_mode="remote", is_contract=True)])
+    finally:
+        store.close()
+
+    # ikinci giris: pencere gorunmeli, icinde SADECE mega (yeni + yuksek puanli)
+    client.post("/giris", data={"username": "admin", "password": "123456"},
+                follow_redirects=False)
+    sayfa = client.get("/").text
+    modal = sayfa.split('id="haberler-modal"', 1)[1].split("</div>\n</div>", 1)[0]
+    assert "İyi haberler var" in sayfa
+    assert "en iyi <b>1</b>" in sayfa                # tek ilan nitelikli
+    assert 'http://ornek/mega"' in modal
+    assert 'http://ornek/gama"' not in modal         # dusuk puanli, pencerede yok
+
+
+def test_iyi_haberler_isaretli_ilani_gostermez(panel):
+    client, db = panel
+    client.post("/giris", data={"username": "admin", "password": "123456"},
+                follow_redirects=False)
+    client.post("/cikis", follow_redirects=False)
+    store = Storage(db)
+    try:
+        store.upsert([_project("mega", 90, work_mode="remote")])
+    finally:
+        store.close()
+    client.post("/giris", data={"username": "admin", "password": "123456"},
+                follow_redirects=False)
+    client.post("/status", data={"fingerprint": "fp-mega", "status": "shortlist"},
+                follow_redirects=False)
+    # tek nitelikli ilan isaretlendi -> pencere hic olusmaz
+    assert "İyi haberler var" not in client.get("/").text
+
+
 # --- yetkiler ------------------------------------------------------------
 def test_yetkisiz_kullanici_ayarlara_giremez(admin):
     client, db = admin
