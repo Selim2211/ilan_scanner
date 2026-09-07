@@ -2,11 +2,18 @@
 from __future__ import annotations
 
 APP_NAME = "İlan Tarayıcı"
-VERSION = "1.12.2"
+VERSION = "1.12.3"
 RELEASE_DATE = "2026-09-07"
 
 #: Hakkinda penceresinde madde madde gosterilir - "bu surumde ne degisti".
 CHANGELOG = [
+    ("1.12.3", "2026-09-07", [
+        "\"İyi haberler var\" penceresi artık yalnızca ilan listesinin 1. sayfasında "
+        "çıkıyor (adres çubuğuyla 2. sayfaya gidince görünmüyor).",
+        "Son güncelleme setinin test kapsamı genişletildi: giriş geçmişi, İyi "
+        "haberler penceresi, Word ve Excel çıktısı için 29 yeni senaryo (toplam "
+        "351 test).",
+    ]),
     ("1.12.2", "2026-09-07", [
         "Excel'e aktar ekranına \"Tümünü seç\" düğmesi eklendi: listelenen "
         "ilanların hepsini bir tıkla seçip aktarabilirsiniz.",

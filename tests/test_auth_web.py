@@ -150,6 +150,163 @@ def test_iyi_haberler_isaretli_ilani_gostermez(panel):
     assert "İyi haberler var" not in client.get("/").text
 
 
+def _iki_giris(client, db):
+    """İyi haberler için zemin: bir kez gir-çık, sonra tekrar gir. previous_login dolu olur."""
+    client.post("/giris", data={"username": "admin", "password": "123456"}, follow_redirects=False)
+    client.post("/cikis", follow_redirects=False)
+    client.post("/giris", data={"username": "admin", "password": "123456"}, follow_redirects=False)
+
+
+def test_iyi_haberler_ilk_giriste_gorunmez(panel):
+    """previous_login yoksa (ilk giriş) pencere hiç oluşmaz - yüksek puanlı ilan olsa bile."""
+    client, db = panel
+    store = Storage(db)
+    try:
+        store.upsert([_project("mega", 95, work_mode="remote")])
+    finally:
+        store.close()
+    client.post("/giris", data={"username": "admin", "password": "123456"}, follow_redirects=False)
+    assert "İyi haberler var" not in client.get("/").text
+
+
+def test_iyi_haberler_kapanmis_ilani_gostermez(panel):
+    client, db = panel
+    client.post("/giris", data={"username": "admin", "password": "123456"}, follow_redirects=False)
+    client.post("/cikis", follow_redirects=False)
+    store = Storage(db)
+    try:
+        store.upsert([_project("mega", 95, work_mode="remote")])
+        store.close_project("fp-mega")
+    finally:
+        store.close()
+    client.post("/giris", data={"username": "admin", "password": "123456"}, follow_redirects=False)
+    assert "İyi haberler var" not in client.get("/").text
+
+
+def test_iyi_haberler_yalniz_ilk_sayfada(panel):
+    client, db = panel
+    client.post("/giris", data={"username": "admin", "password": "123456"}, follow_redirects=False)
+    client.post("/cikis", follow_redirects=False)
+    store = Storage(db)
+    try:
+        store.upsert([_project("mega", 95, work_mode="remote")])
+    finally:
+        store.close()
+    client.post("/giris", data={"username": "admin", "password": "123456"}, follow_redirects=False)
+    assert "İyi haberler var" in client.get("/?min_score=0").text
+    assert "İyi haberler var" not in client.get("/?min_score=0&page=2").text
+
+
+def test_iyi_haberler_modal_anahtari_onceki_giris(panel):
+    """Pencere data-key = önceki giriş zamanı (tarayıcıda tekrar açılmasını engeller)."""
+    client, db = panel
+    _iki_giris(client, db)
+    store = Storage(db)
+    try:
+        store.upsert([_project("mega", 95, work_mode="remote")])
+    finally:
+        store.close()
+    auth = Auth(db)
+    try:
+        onceki = auth.previous_login(auth.by_username("admin")["id"])
+    finally:
+        auth.close()
+    sayfa = client.get("/?min_score=0").text
+    assert f'data-key="{onceki}"' in sayfa
+
+
+# --- giriş geçmişi: ayrıntı ------------------------------------------------
+
+def test_yanlis_sifre_login_event_yaratmaz(panel):
+    client, db = panel
+    client.post("/giris", data={"username": "admin", "password": "yanlis"}, follow_redirects=False)
+    auth = Auth(db)
+    try:
+        assert auth.recent_logins(auth.by_username("admin")["id"]) == []
+    finally:
+        auth.close()
+
+
+def test_previous_login_ikinci_en_yeniyi_verir(panel):
+    client, db = panel
+    for _ in range(3):
+        client.post("/giris", data={"username": "admin", "password": "123456"}, follow_redirects=False)
+        client.post("/cikis", follow_redirects=False)
+    auth = Auth(db)
+    try:
+        uid = auth.by_username("admin")["id"]
+        gecmis = auth.recent_logins(uid, 10)
+        assert len(gecmis) == 3
+        # en yeniden eskiye sıralı
+        assert gecmis[0]["at"] >= gecmis[1]["at"] >= gecmis[2]["at"]
+        # previous_login = ikinci en yeni (en yeni değil, üçüncü de değil)
+        assert auth.previous_login(uid) == gecmis[1]["at"]
+    finally:
+        auth.close()
+
+
+def test_giris_ip_kaydediliyor(panel):
+    client, db = panel
+    client.post("/giris", data={"username": "admin", "password": "123456"},
+                headers={"user-agent": "PytestTarayici/1.0"}, follow_redirects=False)
+    auth = Auth(db)
+    try:
+        kayit = auth.recent_logins(auth.by_username("admin")["id"])[0]
+        assert kayit["ip"]                              # testclient bir adres verir
+        assert "Pytest" in (kayit["user_agent"] or "")
+    finally:
+        auth.close()
+
+
+def test_prune_login_events_kullanici_basina_tutar(panel):
+    client, db = panel
+    auth = Auth(db)
+    try:
+        uid = auth.by_username("admin")["id"]
+        other = auth.create_user("digeri", "parola123")
+        for i in range(6):
+            auth.conn.execute("INSERT INTO login_events (user_id, at) VALUES (?,?)",
+                              (uid, f"2026-09-0{i+1}T00:00:00+00:00"))
+        auth.conn.execute("INSERT INTO login_events (user_id, at) VALUES (?,?)",
+                          (other, "2026-09-01T00:00:00+00:00"))
+        auth.conn.commit()
+        silinen = auth.prune_login_events(keep_per_user=3)
+        assert silinen == 3
+        assert len(auth.recent_logins(uid, 99)) == 3    # en yeni 3 kaldı
+        assert len(auth.recent_logins(other, 99)) == 1  # diğer kullanıcıya dokunulmadı
+        # kalanlar en yeniler mi
+        assert auth.recent_logins(uid, 99)[0]["at"].startswith("2026-09-06")
+    finally:
+        auth.close()
+
+
+def test_admin_paneli_giris_gecmisini_gosterir(admin):
+    client, db = admin
+    r = client.get("/admin")
+    assert r.status_code == 200
+    assert "Giriş geçmişi" in r.text
+
+
+def test_bakim_giris_kayitlarini_da_buduyor(admin):
+    client, db = admin
+    auth = Auth(db)
+    try:
+        uid = auth.by_username("admin")["id"]
+        for i in range(60):
+            auth.conn.execute("INSERT INTO login_events (user_id, at) VALUES (?,?)",
+                              (uid, f"2026-07-{(i % 28) + 1:02d}T00:00:00+00:00"))
+        auth.conn.commit()
+    finally:
+        auth.close()
+    r = client.post("/ayarlar/bakim", data={"gorev": "sessions"}, follow_redirects=True)
+    assert r.status_code == 200
+    auth = Auth(db)
+    try:
+        assert len(auth.recent_logins(auth.by_username("admin")["id"], 999)) <= 50
+    finally:
+        auth.close()
+
+
 # --- yetkiler ------------------------------------------------------------
 def test_yetkisiz_kullanici_ayarlara_giremez(admin):
     client, db = admin

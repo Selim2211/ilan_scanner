@@ -786,6 +786,60 @@ def test_disari_aktar_bos_secim_geri_doner(client):
     assert r.status_code == 303
 
 
+def test_disari_aktar_bilinmeyen_fp_yok_sayilir(client, tmp_path):
+    from openpyxl import load_workbook
+    import io
+    fp = _tek_ilan(tmp_path, title="Gerçek İlan", score=50)
+    r = client.post("/disari-aktar", data={"fp": [fp, "sahte1", "sahte2", fp]})
+    assert r.status_code == 200
+    ws = load_workbook(io.BytesIO(r.content)).active
+    assert ws.max_row == 2                              # başlık + 1 gerçek ilan (tekilleşmiş)
+
+
+def test_disari_aktar_filtre_adres_cubuguyla_tasinir(client, tmp_path):
+    _tek_ilan(tmp_path, title="SAP ABAP Filtre", score=60)
+    sayfa = client.get("/disari-aktar?min_score=0&q=filtre&mode=remote").text
+    # "İlan listesi" bağlantısı ve filtre formu aynı filtreyi taşır
+    assert "q=filtre" in sayfa or 'value="filtre"' in sayfa
+
+
+def test_word_ve_excel_yetkisiz_kullaniciya_kapali(client, tmp_path):
+    from fastapi.testclient import TestClient
+    from scanner.auth import Auth
+
+    fp = _tek_ilan(tmp_path, title="Yetki Testi", score=50)
+    db = tmp_path / "data" / "projects.db"
+    auth = Auth(db)
+    try:
+        auth.create_user("dar", "parola123", permissions=["view_list"])
+    finally:
+        auth.close()
+
+    dar = TestClient(client.app)
+    dar.post("/giris", data={"username": "dar", "password": "parola123"})
+    assert dar.get("/").status_code == 200
+    assert dar.get(f"/ilan/{fp}/word").status_code == 403
+    assert dar.get("/disari-aktar").status_code == 403
+    assert dar.post("/disari-aktar", data={"fp": [fp]}).status_code == 403
+
+
+def test_word_dugmesi_yetkisiz_kullaniciya_gorunmez(client, tmp_path):
+    from fastapi.testclient import TestClient
+    from scanner.auth import Auth
+
+    _tek_ilan(tmp_path, title="Görünmez Word", score=50)
+    db = tmp_path / "data" / "projects.db"
+    auth = Auth(db)
+    try:
+        auth.create_user("dar", "parola123", permissions=["view_list"])
+    finally:
+        auth.close()
+    dar = TestClient(client.app)
+    dar.post("/giris", data={"username": "dar", "password": "parola123"})
+    sayfa = dar.get("/").text
+    assert "/word" not in sayfa and "Excel'e aktar" not in sayfa
+
+
 def test_basvurulan_ilan_ana_listeden_kalkar(client, tmp_path):
     """Basvuru surecindeki ilan varsayilan listede digerleriyle karismaz."""
     fp = _tek_ilan(tmp_path, title="SAP ABAP Gizlenecek", score=80)

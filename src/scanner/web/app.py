@@ -557,7 +557,8 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         score = secim["min_score"]
 
         size = page_size()
-        page = max(1, page)
+        istenen_sayfa = max(1, page)          # "İyi haberler" yalnızca 1. sayfada
+        page = istenen_sayfa
 
         filters = secim_filtreleri(secim, pid)
 
@@ -579,7 +580,7 @@ def create_app(auto_scan: bool | None = None, interval_minutes: int | None = Non
         # "İyi haberler var" penceresi: kullanicinin bir onceki girisinden bu yana
         # dusen yuksek puanli, okunmamis ilanlar. Sadece 1. sayfada, filtresiz gorunumde.
         haberler, haber_key = [], ""
-        if page == 1:
+        if istenen_sayfa == 1:
             auth = open_auth()
             try:
                 onceki_giris = auth.previous_login(user.id)

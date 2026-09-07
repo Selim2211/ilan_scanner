@@ -774,3 +774,72 @@ def test_gun_filtresi_secilen_tarih_alanina_bakar(tmp_path):
     # karo da bunu saymali
     assert store.stats()["new_24h"] == 1
     store.close()
+
+
+# --- İyi haberler + dışa aktar için depo yardımcıları -------------------
+
+def test_good_news_esik_isaret_ve_sira(tmp_path):
+    """good_news: verilen andan sonra düşen, aktif, yüksek puanlı, işaretsiz
+    ilanlar - puana göre, işaretliler ve düşük puanlılar hariç."""
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    kesim = "2026-09-01T00:00:00+00:00"
+
+    def ekle(slug, score, **kw):
+        p = project(title=slug, company=slug, work_mode=REMOTE, **kw)
+        p.score = score
+        p.fingerprint = "fp-" + slug
+        store.upsert([p])
+        return p.fingerprint
+
+    yeni_yuksek = ekle("yeni-yuksek", 80)
+    ekle("yeni-dusuk", 20)                                   # eşik altı
+    kapali = ekle("kapali", 90)
+    store.close_project(kapali)                              # aktif değil
+    isaretli = ekle("isaretli", 85)
+    store.set_status(isaretli, "shortlist")                  # işaretli
+
+    # kesimden ÖNCE düşmüş bir ilan (first_seen elle geriye çekilir)
+    eski = ekle("eski", 95)
+    store.conn.execute("UPDATE projects SET first_seen_at = ? WHERE fingerprint = ?",
+                       ("2026-08-01T00:00:00+00:00", eski))
+    store.conn.commit()
+
+    haberler = store.good_news(kesim, min_score=50, profile_id=0, limit=12)
+    assert [r["fingerprint"] for r in haberler] == [yeni_yuksek]
+
+    # kesim boşsa hiçbir şey dönmez
+    assert store.good_news("", min_score=0) == []
+    store.close()
+
+
+def test_good_news_limit_ve_puan_sirasi(tmp_path):
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    for i, sk in enumerate([55, 90, 70, 60, 88]):
+        p = project(title=f"ilan{i}", company=f"F{i}", work_mode=REMOTE)
+        p.score = sk
+        p.fingerprint = f"fp{i}"
+        store.upsert([p])
+
+    ilk3 = store.good_news("2026-01-01T00:00:00+00:00", min_score=50, limit=3)
+    assert [r["score"] for r in ilk3] == [90, 88, 70]        # puana göre, limit uygulanmış
+    store.close()
+
+
+def test_rows_by_fingerprints_sira_tekil_bos(tmp_path):
+    from scanner.storage import Storage
+
+    store = Storage(tmp_path / "t.db")
+    for i, sk in enumerate([40, 75, 60]):
+        p = project(title=f"r{i}", company=f"F{i}")
+        p.score = sk
+        p.fingerprint = f"r{i}"
+        store.upsert([p])
+
+    rows = store.rows_by_fingerprints(["r0", "r2", "r1", "r0", "yok"], profile_id=0)
+    assert [r["fingerprint"] for r in rows] == ["r1", "r2", "r0"]   # puan desc, tekilleşmiş
+    assert store.rows_by_fingerprints([], profile_id=0) == []
+    store.close()
